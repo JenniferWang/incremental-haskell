@@ -50,10 +50,7 @@ slow_get_child kind index = fromJust $
 -- no side effect
 iteri_children :: Kind a -> (Index -> N.Packed_node -> Maybe b) -> [Maybe b]
 iteri_children kind g =
-  case kind of (Const _)  -> []
-               Invalid    -> []
-               (Map _ n0) -> [g 0 (N.pack n0)]
-               (Var _)    -> []
+  case kind of (Map _ n0) -> [g 0 (N.pack n0)]
                _          -> []
 
 test :: (b -> a) -> N.Node b -> Kind a
