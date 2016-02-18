@@ -1,57 +1,17 @@
-{-#LANGUAGE ExistentialQuantification #-}
 module Node where
 
 import Data.IORef
 import qualified Var as V
+import qualified Kind as K
 import Types
 
----------------------------------- Kind ---------------------------------------
--- Kind stores the computational information of each node.
--- https://github.com/janestreet/incremental/blob/master/src/kind.mli
-
--- Here I didn't use a IORef for Node because none of the methods in this module
--- will cause mutation
-data Kind a =
-    Const a
-  | Invalid
-  | forall b. Map (b -> a) (Node b) -- TODO: not sure about this
-  | Uninitialized
-  | Var (V.Var a)
-
-instance Show (Kind a) where
-  show (Const _)     = "Const"
-  show Invalid       = "Invalid"
-  show (Map _ _)     = "Map"
-  show Uninitialized = "Uninitialized"
-  show (Var _)       = "Var"
-
-maxNumChildren :: Kind a -> Int
-maxNumChildren (Const _)     = 0
-maxNumChildren Invalid       = 0
-maxNumChildren (Map _ _)     = 1
-maxNumChildren Uninitialized = 0
-maxNumChildren (Var _)       = 0
-
--- TODO: add error message
-slowGetChild :: Kind a -> Index -> Packed_node
-slowGetChild kind index =
-  (iteriChildren kind (\_ n -> n)) !! index
-
--- Iterate through all the childrens with a function
--- no side effect
-iteriChildren :: Kind a -> (Index -> Packed_node -> b) -> [b]
-iteriChildren kind g =
-  case kind of (Map _ n0) -> [g 0 (pack n0)]
-               _          -> []
-
 ---------------------------------- NodeId -------------------------------------
-
 data NodeId = NodeId { i :: IORef Int }
 
 newId :: IO NodeId
 newId = do
      fs <- newIORef 0
-     return (NodeId {i = fs})
+     return $ NodeId {i = fs}
 
 nextId :: NodeId -> IO Int
 nextId node_id = do
@@ -60,38 +20,70 @@ nextId node_id = do
      return id
 
 ---------------------------------- Node ---------------------------------------
-data Node a = Node {
-    nid      :: Int
-  , kind     :: Kind a
-    -- value :: a,
-  , children :: [IORef (Node a)]
-  , parents  :: [IORef (Node a)]
- }
-
 newNode :: NodeId -> IO (Node a)
 newNode node_id = do
        i <- nextId node_id
-       return $ Node{ nid = i, kind = Invalid, children = [], parents=[] }
+       k <- newIORef (Invalid)
+       p <- newIORef (EmptyNode)
+       return $ Node { nid = i
+                     , kind = k
+                     , numParents = 0
+                     , parent0 = p
+                     , parent1AndBeyond = []
+                     }
 
 -- Checks whether n is a valid node
 -- it is if and only if its kind is valid
-isValid :: Node a -> Bool
-isValid n = case kind n of
-              Invalid -> False
-              _       -> True
+isValid :: Node a -> IO Bool
+isValid n = readIORef (kind n) >>=
+  \k -> case k of Invalid -> return False
+                  _       -> return True
 
--- Checks whether m is a child of n
-isChild :: IORef (Node a) -> Node a -> Bool
-isChild child_ref node = child_ref `elem` (children node)
+isValid0 :: IORef (Node a) -> IO Bool
+isValid0 ref = readIORef ref >>= \n -> isValid n
 
--- Checks whether m is a parent of n
+-- | Check whether some IORef Node is the parent of current node
 isParent :: IORef (Node a) -> Node a -> Bool
-isParent par_ref node = par_ref `elem` (parents node)
+isParent par_ref node
+  | numParents node == 0 = False
+  | otherwise = par_ref == (parent0 node)
+             || par_ref `elem` (parent1AndBeyond node)
 
----------------------------------- Packed_node -------------------------------
-data Packed_node
+-- | 'iteriChildren' iterates all the child nodes
+iteriChildren :: Node a -> (Index -> IORef (Node a) -> b) -> IO [b]
+iteriChildren node g
+  | numParents node == 0 = return []
+  | otherwise = readIORef (kind node) >>= \k -> return $ K.iteriChildren k g
 
-pack :: Node a -> Packed_node
-pack = undefined
+maxNumChildren :: Node a -> IO Int
+maxNumChildren n = readIORef (kind n) >>= (return . K.maxNumChildren)
 
+-- | 'getParent' returns the ref to the parent node
+-- This is because later we might need to invalidate a node using this function
+getParent :: Node a -> Index -> IORef (Node a)
+getParent node i =
+  if i == 0 then (parent0 node)
+            else (parent1AndBeyond node) !! (i - 1)
 
+-- | 'iteriParents' iterates all the parent nodes
+iteriParents :: Node a -> (Index -> IORef (Node a) -> b) -> IO [b]
+iteriParents node g
+  | numParents node == 0 = return []
+  | otherwise            = do
+      let g0 =  g 0 (parent0 node)
+          apply_g (i, ref) = g i ref
+          rest = map apply_g (zip [1..] (parent1AndBeyond node))
+      return (g0 : rest)
+
+hasChild :: Node a -> IORef (Node a) -> IO Bool
+hasChild node child = or <$> iteriChildren node (\_ ref -> ref == child)
+
+hasInvalidChild :: Node a -> IO Bool
+hasInvalidChild node = do
+  res <- iteriChildren node (\_ ref -> not <$> (isValid0 ref)) >>= sequence
+  return $ or res
+
+hasParent :: Node a -> IORef (Node a) -> IO Bool
+hasParent node parent = or <$> iteriParents node (\_ ref -> ref == parent)
+
+-- shouldBeInvalidated ::
