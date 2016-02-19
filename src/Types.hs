@@ -35,13 +35,15 @@ data Node a = Node {
     nid    :: Int
   , _kind  :: Kind a
     -- value :: a,
-  , _pinfo :: ParentInfo a
+  , _pinfo :: ParentInfo 
   }
 
-data ParentInfo a = ParentInfo {
+data PackedNode = forall a. PackedNode (IORef (Node a))
+
+data ParentInfo  = ParentInfo {
     _numPar        :: Int
-  , _par0          :: Maybe (IORef (Node a))
-  , _par1AndBeyond :: [IORef (Node a)]
+  , _par0          :: Maybe PackedNode
+  , _par1AndBeyond :: [PackedNode]
   }
 
 ---------------------------------- Var ----------------------------------------
