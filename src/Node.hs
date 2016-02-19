@@ -36,18 +36,18 @@ isValid :: Node a -> Bool
 isValid n = case (n^.kind) of Invalid -> False
                               _       -> True
 
-isValid0 :: IORef (Node a) -> IO Bool
-isValid0 ref = readIORef ref >>= \n -> return $ isValid n
+isValid0 :: PackedNode -> IO Bool
+isValid0 (PackedNode ref) = fmap isValid $ readIORef ref
 
 -- | Check whether some IORef Node is the parent of current node
-isParent :: IORef (Node a) -> Node a -> Bool
+isParent :: PackedNode -> Node a -> Bool
 isParent par_ref node
   | node^.pinfo.numPar == 0 = False
   | otherwise = par_ref == fromJust (node^.pinfo.par0)
              || par_ref `elem` (node^.pinfo.par1AndBeyond)
 
 -- | 'iteriChildren' iterates all the child nodes
-iteriChildren :: Node a -> (Index -> IORef (Node a) -> b) -> [b]
+iteriChildren :: Node a -> (Index -> PackedNode -> b) -> [b]
 iteriChildren node g
   | node^.pinfo.numPar == 0 = []
   | otherwise = K.iteriChildren (node^.kind) g
@@ -57,13 +57,13 @@ maxNumChildren = K.maxNumChildren . _kind
 
 -- | 'getParent' returns the ref to the parent node
 -- This is because later we might need to invalidate a node using this function
-getParent :: Node a -> Index -> IORef (Node a)
+getParent :: Node a -> Index -> PackedNode
 getParent node i =
   if i == 0 then (fromJust $ node^.pinfo.par0)
             else (node^.pinfo.par1AndBeyond) !! (i - 1)
 
 -- | 'iteriParents' iterates all the parent nodes
-iteriParents :: Node a -> (Index -> IORef (Node a) -> b) -> [b]
+iteriParents :: Node a -> (Index -> PackedNode -> b) -> [b]
 iteriParents node g
   | node^.pinfo.numPar == 0 = []
   | otherwise            = g0 : rest
@@ -71,7 +71,7 @@ iteriParents node g
           apply_g (i, ref) = g i ref
           rest             = map apply_g (zip [1..] (node^.pinfo.par1AndBeyond))
 
-hasChild :: Node a -> IORef (Node a) -> Bool
+hasChild :: Node a -> PackedNode -> Bool
 hasChild node child = or $ iteriChildren node (\_ ref -> ref == child)
 
 hasInvalidChild :: Node a -> IO Bool
@@ -81,7 +81,7 @@ hasInvalidChild node = or <$>
 hasInvalidChild0 :: IORef (Node a) -> IO Bool
 hasInvalidChild0 ref = readIORef ref >>= hasInvalidChild
 
-hasParent :: Node a -> IORef (Node a) -> Bool
+hasParent :: Node a -> PackedNode -> Bool
 hasParent node parent = or $ iteriParents node (\_ ref -> ref == parent)
 
 shouldBeInvalidated :: Node a -> IO Bool
@@ -101,17 +101,16 @@ addParent :: IORef (Node a) -> IORef (Node a) -> IO ()
 addParent child parent = do
   c <- readIORef child
   if (c^.pinfo.numPar) == 0
-     then writeIORef child $ over pinfo (\p -> p{ _par0   = Just parent
+     then writeIORef child $ over pinfo (\p -> p{ _par0   = Just (PackedNode parent)
                                                 , _numPar = 1 }) c
      else let old_pinfo = c^.pinfo
               new_pinfo =
-                old_pinfo{ _par1AndBeyond = parent : (old_pinfo^.par1AndBeyond)
+                old_pinfo{ _par1AndBeyond = PackedNode parent : (old_pinfo^.par1AndBeyond)
                          , _numPar = old_pinfo^.numPar + 1 }
            in writeIORef child c{ _pinfo = new_pinfo }
 
 removeParent :: IORef (Node a) -> IORef (Node a) -> IO ()
 removeParent = undefined
-
 
 test :: IO ()
 test = do
@@ -127,9 +126,11 @@ test = do
   setKind ref1 Uninitialized
   n1' <- readIORef ref1
   n2' <- readIORef ref2
-  n2_par <- readIORef (head $ n2'^.pinfo.par1AndBeyond)
   putStrLn $ "now n1 kind is " ++ show (_kind n1')
-  putStrLn $ "now n2_par kind is " ++ show (_kind n2_par)
+  case head $ n2'^.pinfo.par1AndBeyond of
+    PackedNode r -> do
+        n2_par <- readIORef r
+        putStrLn $ "now n2_par kind is " ++ show (_kind n2_par)
 
 ---------------------------------- Helper --------------------------------------
 

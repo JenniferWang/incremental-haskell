@@ -6,6 +6,7 @@ module Types
 
 import Data.IORef
 import Lens.Simple
+import Unsafe.Coerce
 
 type Index = Int
 
@@ -39,6 +40,9 @@ data Node a = Node {
   }
 
 data PackedNode = forall a. PackedNode (IORef (Node a))
+
+instance Eq PackedNode where
+   (==) (PackedNode ref1) (PackedNode ref2) = ref1 == unsafeCoerce ref2
 
 data ParentInfo  = ParentInfo {
     _numPar        :: Int
