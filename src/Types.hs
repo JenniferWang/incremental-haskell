@@ -1,8 +1,11 @@
-{-#LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE TemplateHaskell           #-}
+
 module Types
   where
 
 import Data.IORef
+import Lens.Simple
 
 type Index = Int
 
@@ -28,17 +31,26 @@ instance Show (Kind a) where
 
 
 ---------------------------------- Node ---------------------------------------
-data Node a = EmptyNode
-            | Node { nid              :: Int
-                   , kind             :: Kind a
-                   -- value           :: a,
-                   , numParents       :: Int
-                   , parent0          :: IORef (Node a)
-                   , parent1AndBeyond :: [IORef (Node a)]
-                   }
+data Node a = Node {
+    nid    :: Int
+  , _kind  :: Kind a
+    -- value :: a,
+  , _pinfo :: ParentInfo a
+  }
+
+data ParentInfo a = ParentInfo {
+    _numPar        :: Int
+  , _par0          :: Maybe (IORef (Node a))
+  , _par1AndBeyond :: [IORef (Node a)]
+  }
 
 ---------------------------------- Var ----------------------------------------
 data Var a = Var
 
 ---------------------------------- Packed_node --------------------------------
 -- JaneStreet defines this for performance reason.
+
+
+makeLenses ''Node
+makeLenses ''ParentInfo
+
