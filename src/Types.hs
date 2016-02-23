@@ -37,6 +37,7 @@ data Node a = Node {
   , _kind  :: Kind a
     -- value :: a,
   , _pinfo :: ParentInfo 
+  , _hinfo :: HeapInfo
   }
 
 data PackedNode = forall a. PackedNode (IORef (Node a))
@@ -44,11 +45,19 @@ data PackedNode = forall a. PackedNode (IORef (Node a))
 instance Eq PackedNode where
    (==) (PackedNode ref1) (PackedNode ref2) = ref1 == unsafeCoerce ref2
 
+
 data ParentInfo  = ParentInfo {
     _numPar        :: Int
   , _par0          :: Maybe PackedNode
   , _par1AndBeyond :: [PackedNode]
   }
+
+data HeapInfo  = HeapInfo {
+    _heightInRecomputeHeap  :: IORef Int
+  , _prev_in_recompute_heap :: Maybe PackedNode
+  , _next_in_recompute_heap :: Maybe PackedNode
+  }
+
 
 ---------------------------------- Var ----------------------------------------
 data Var a = Var

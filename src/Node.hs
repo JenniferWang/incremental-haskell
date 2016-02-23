@@ -24,10 +24,13 @@ nextId node_id = do
 newNode :: NodeId -> IO (Node a)
 newNode node_id = do
        i <- nextId node_id
+       j <- newIORef (-1)
        let p_info = ParentInfo 0 Nothing []
+           h_info = HeapInfo j Nothing Nothing
        return $ Node { nid = i
                      , _kind = Invalid
                      , _pinfo = p_info
+                     , _hinfo = h_info
                      }
 
 -- Checks whether n is a valid node
