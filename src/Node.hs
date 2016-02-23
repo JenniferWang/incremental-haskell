@@ -1,46 +1,38 @@
 module Node where
 
 import Data.IORef
-import Lens.Simple
-import qualified Var as V
-import qualified Kind as K
-import Types
+import Data.Unique
 import Prelude hiding (id)
 import Data.Maybe(fromJust, isJust, isNothing)
 
----------------------------------- NodeId -------------------------------------
-data NodeId = NodeId { id :: IORef Int }
+import Lens.Simple
 
-newId :: IO NodeId
-newId = newIORef 0 >>= (return . NodeId)
-
-nextId :: NodeId -> IO Int
-nextId node_id = do
-     i <- readIORef (id node_id)
-     writeIORef (id node_id) (i + 1)
-     return i
+import qualified Var as V
+import qualified Kind as K
+import Types
+import Utils
 
 ---------------------------------- Node ---------------------------------------
-newNode :: NodeId -> IO (Node a)
-newNode node_id = do
-       i <- nextId node_id
-       let p_info = ParentInfo 0 Nothing []
-           n_info = NodeInfo { nid             = i
-                             , _kind           = Invalid
-                             , _forceNecessary = False
-                             , _obsHead        = Nothing
-                             , _value          = ValueInfo Nothing (-1) (-1)
-                             }
-           h_info = HeapInfo { _rec = RecHeapInfo (-1) Nothing Nothing
-                             , _adj = AdjHeapInfo (-1) Nothing
-                             }
-
-       return $ Node { _node   = n_info
-                     , _par    = p_info
-                     , _height = -1
-                     , _heap   = h_info
-                     , _handlers = HandlersInfo 0 False []
-                     }
+newNode :: IO (NodeRef a)
+newNode = do
+  i <- newUnique
+  let p_info = ParentInfo 0 Nothing []
+      n_info = NodeInfo { nid             = i
+                        , _kind           = Invalid
+                        , _forceNecessary = False
+                        , _obsHead        = Nothing
+                        , _value          = ValueInfo Nothing (-1) (-1)
+                        }
+      h_info = HeapInfo { _rec = RecHeapInfo (-1) Nothing Nothing
+                        , _adj = AdjHeapInfo (-1) Nothing
+                        }
+      node   = Node { _node   = n_info
+                    , _par    = p_info
+                    , _height = -1
+                    , _heap   = h_info
+                    , _handlers = HandlersInfo 0 False []
+                    }
+  newIORef node >>= return
 
 -- Checks whether n is a valid node
 -- it is if and only if its kind is valid
@@ -90,7 +82,7 @@ hasInvalidChild :: Node a -> IO Bool
 hasInvalidChild n = or <$>
   (sequence $ iteriChildren n (\_ ref -> not <$> (isValid0 ref)))
 
-hasInvalidChild0 :: IORef (Node a) -> IO Bool
+hasInvalidChild0 :: NodeRef a-> IO Bool
 hasInvalidChild0 ref = readIORef ref >>= hasInvalidChild
 
 hasParent :: Node a -> PackedNode -> Bool
@@ -101,7 +93,7 @@ shouldBeInvalidated n =
   case (n^.node.kind) of Map _ n_ref -> hasInvalidChild0 n_ref
                          _           -> return False
 
-setKind :: IORef (Node a) -> Kind a -> IO ()
+setKind :: NodeRef a -> Kind a -> IO ()
 setKind ref k = modifyIORef' ref (\n -> n & node.kind.~ k)
 
 
@@ -109,7 +101,7 @@ setKind ref k = modifyIORef' ref (\n -> n & node.kind.~ k)
 -- Here the parent is added to the beginning of the parents list
 -- The OCaml version takes the child_index for performance reason.
 -- https://github.com/janestreet/incremental/blob/master/src/node.ml#L519
-addParent :: IORef (Node a) -> IORef (Node b) -> IO ()
+addParent :: NodeRef a -> NodeRef b -> IO ()
 addParent child parent = do
   c <- readIORef child
   let c1 = c & par.numPar %~ (+1)
@@ -117,11 +109,8 @@ addParent child parent = do
     then writeIORef child (c1 & par.par0 .~ Just (pack parent))
     else writeIORef child (c1 & par.par1AndBeyond %~ (pack parent :))
 
-removeParent :: IORef (Node a) -> IORef (Node b) -> IO ()
+removeParent :: NodeRef a -> NodeRef b -> IO ()
 removeParent child parent = return ()
-
-pack :: IORef (Node a) -> PackedNode
-pack = PackedNode
 
 isNecessary :: Node a -> Bool
 isNecessary n = (n^.par.numPar) > 0
@@ -141,13 +130,9 @@ isInRecomputeHeap n = (n^.heap.rec.heightInRecHeap) >= 0
 
 test :: IO ()
 test = do
-  id <- newId
-  n1 <- newNode id
-  n2 <- newNode id
-  n3 <- newNode id
-  ref1 <- newIORef n1
-  ref2 <- newIORef n2
-  ref3 <- newIORef n3
+  ref1 <- newNode
+  ref2 <- newNode
+  ref3 <- newNode
   addParent ref2 ref3
   addParent ref2 ref1
   setKind ref1 Uninitialized

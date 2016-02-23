@@ -5,9 +5,11 @@ module Types
   where
 
 import Data.IORef
-import Lens.Simple
+import Data.Unique
 import Unsafe.Coerce
 import Control.Monad.Trans.State.Strict hiding (State)
+
+import Lens.Simple
 
 type Index = Int
 type Height = Int
@@ -22,7 +24,7 @@ data Kind a =
     Const a
   | FreezeNode (Freeze a)
   | Invalid
-  | forall b. Map (b -> a) (IORef (Node a)) -- TODO: not sure about this
+  | forall b. Map (b -> a) (NodeRef a) -- TODO: not sure about this
   | Uninitialized
   | Variable (Var a)
 
@@ -39,12 +41,14 @@ instance Show (Kind a) where
 -- and doesn't change thereafter.
 
 data Freeze a = Freeze {
-    _mainNode       :: IORef (Node a)
-  , _childNode      :: IORef (Node a)
+    _mainNode       :: NodeRef a
+  , _childNode      :: NodeRef a
   , _onlyFreezeWhen :: a -> Bool
   }
 
 ---------------------------------- Node ---------------------------------------
+type NodeRef a = IORef (Node a)
+
 data Node a = Node {
     _node     :: NodeInfo a
   , _par      :: ParentInfo
@@ -69,7 +73,7 @@ data ValueInfo a = ValueInfo {
   }
 
 data NodeInfo a = NodeInfo {
-    nid             :: Int
+    nid             :: Unique
   , _kind           :: Kind a
   , _forceNecessary :: Bool
   , _obsHead        :: Maybe DummyType -- the head of the doubly-linked list of observers
@@ -82,7 +86,7 @@ data HandlersInfo a = HandlersInfo {
   , _onUpdates          :: [DummyType2 a]
   }
 
-data PackedNode = forall a. PackedNode (IORef (Node a))
+data PackedNode = forall a. PackedNode (NodeRef a)
 
 instance Eq PackedNode where
    (==) (PackedNode ref1) (PackedNode ref2) = ref1 == unsafeCoerce ref2

@@ -20,7 +20,7 @@ amStabilizing = do
     Stabilizing               -> return True
     RunningOnUpdateHandlers   -> return True
 
-setHeight :: IORef (Node a) -> Height -> StateIO ()
+setHeight :: NodeRef a -> Height -> StateIO ()
 setHeight = undefined
 
 setMaxHeightAllowed :: Height -> StateIO ()
@@ -30,21 +30,21 @@ setMaxHeightAllowed h = do
   -- TODO: change adjust_height_heap
   -- TODO: change recompute_heap
 
-removeChildren :: IORef (Node a) -> StateIO ()
+removeChildren :: NodeRef a -> StateIO ()
 removeChildren par_ref = do
   par_node         <- readIORefT par_ref
-  sequence_ $ N.iteriChildren par_node (\i (PackedNode child_ref) ->
+  sequence_ $ N.iteriChildren par_node (\_ (PackedNode child_ref) ->
     do lift (N.removeParent child_ref par_ref)
        checkIfUnnecessary child_ref
     )
 
-checkIfUnnecessary :: IORef (Node a) -> StateIO ()
+checkIfUnnecessary :: NodeRef a -> StateIO ()
 checkIfUnnecessary ref = do
   n <- readIORefT ref
   if (N.isNecessary n) then return ()
                        else becameUnnecessary ref
 
-becameUnnecessary :: IORef (Node a) -> StateIO ()
+becameUnnecessary :: NodeRef a -> StateIO ()
 becameUnnecessary ref = do
   n <- readIORefT ref
   modify (\s -> s & num.nodesBecame.unnecessary %~ (+ 1))
@@ -54,7 +54,7 @@ becameUnnecessary ref = do
   -- TODO: kind = Unordered_array_fold / UnorderedArrayFold
   -- TODO: when (N.isInRecomputeHeap n) (remove from recompute heap)
 
-handleAfterStabilization :: IORef (Node a) -> StateIO ()
+handleAfterStabilization :: NodeRef a -> StateIO ()
 handleAfterStabilization ref = do
   n <- readIORefT ref
   if n^.handlers.isInHandleAfterStb
