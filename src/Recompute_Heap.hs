@@ -1,6 +1,5 @@
 module Recompute_Heap where
 
-import qualified Node as N
 import Types
 
 import Data.Heap (Heap,Entry(..))
@@ -18,9 +17,25 @@ import Lens.Simple
 
 type RecomputeList = Heap (Entry Height PackedNode)
 
-link :: PackedNode -> RecomputeList -> IO RecomputeList
-link (PackedNode node_ref) rec_list = do
-          node <- readIORef node_ref  
-          return (H.insert (Entry (node^.height) (PackedNode node_ref)) rec_list)
-          
+-- | length of the heap
+length :: RecomputeList -> Int
+length = H.size 
+
+-- | add a node to heap
+add :: PackedNode -> RecomputeList -> IO RecomputeList
+add (PackedNode node_ref) rec_heap = do
+          n <- readIORef node_ref  
+          return (H.insert (Entry (n^.height) (PackedNode node_ref)) rec_heap)
+
+-- | removes a node from heap
+remove :: PackedNode -> RecomputeList -> RecomputeList
+remove packed_node rec_heap = H.filter (\(Entry _ n) -> (packed_node == n)) rec_heap
+
+
+-- | removes and returns a node in heap with minimum height
+--   if the heap is not empty
+pop :: RecomputeList -> Maybe (PackedNode, RecomputeList)
+pop rec_heap = case H.uncons rec_heap of 
+          Just ((Entry _ packed_node),heap) -> Just (packed_node, heap)
+          Nothing                           -> Nothing
 

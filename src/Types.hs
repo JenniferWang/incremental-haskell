@@ -6,6 +6,7 @@ module Types
 
 import Data.IORef
 import Data.Unique
+import Data.Heap (Heap,Entry(..))
 import Unsafe.Coerce
 import Control.Monad.Trans.State.Strict hiding (State)
 
