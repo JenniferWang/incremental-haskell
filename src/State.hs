@@ -93,6 +93,8 @@ addParent child_ref par_ref = do
   -- adjust height
 
 
+-- recomputeEverythingNecessary :: 
+
 ---------------------------------- Helper --------------------------------------
 readIORefT :: (IORef a) -> StateIO a
 readIORefT = (lift . readIORef)

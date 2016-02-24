@@ -98,7 +98,7 @@ data Var a = Var
 data Scope = Scope
 
 ---------------------------------- Heap ---------------------------------------
-data RecomputeHeap = RecomputeHeap
+type RecomputeHeap = Heap (Entry Height PackedNode)
 
 data AdjustHeightsHeap = AdjustHeightsHeap
 
