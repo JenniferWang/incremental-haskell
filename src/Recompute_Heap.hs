@@ -2,8 +2,12 @@ module Recompute_Heap where
 
 import qualified Node as N
 import Types
-import Data.Heap
 
+import Data.Heap (Heap,Entry(..))
+import qualified Data.Heap as H
+import Data.IORef
+
+import Lens.Simple
 
 -----------------------------  Recompute Heap --------------------
 -- Recompute heap holds the set of nodes that need to be computed. 
@@ -12,11 +16,11 @@ import Data.Heap
 -- them in increasing order of height
 -- https://github.com/janestreet/incremental/blob/master/src/recompute_heap.mli
 
-data RecomputeList = MinHeap Height PackedNode
+type RecomputeList = Heap (Entry Height PackedNode)
 
-link :: PackedNode -> RecomputeList -> RecomputeList
+link :: PackedNode -> RecomputeList -> IO RecomputeList
 link (PackedNode node_ref) rec_list = do
           node <- readIORef node_ref  
-          insert node^.heap.rec.heightInRecHeap node_ref rec_list
+          return (H.insert (Entry (node^.height) (PackedNode node_ref)) rec_list)
           
 
