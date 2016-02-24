@@ -6,15 +6,16 @@ import Control.Monad (when)
 import Data.IORef
 
 import Types
+import Utils
 import qualified Node as N
 
 numStabilizes :: StateIO Int
-numStabilizes = do s <- get; return $ s^.stb.stbNum
+numStabilizes = do s <- get; return $ s^.info.stbNum
 
 amStabilizing :: StateIO Bool
 amStabilizing = do
   s <- get
-  case (s^.status) of
+  case (s^.info.status) of
     NotStabilizing            -> return False
     StabilizePreviouslyRaised -> return False
     Stabilizing               -> return True
@@ -32,7 +33,7 @@ setMaxHeightAllowed h = do
 
 removeChildren :: NodeRef a -> StateIO ()
 removeChildren par_ref = do
-  par_node         <- readIORefT par_ref
+  par_node <- readIORefT par_ref
   sequence_ $ N.iteriChildren par_node (\_ (PackedNode child_ref) ->
     do lift (N.removeParent child_ref par_ref)
        checkIfUnnecessary child_ref
@@ -47,7 +48,7 @@ checkIfUnnecessary ref = do
 becameUnnecessary :: NodeRef a -> StateIO ()
 becameUnnecessary ref = do
   n <- readIORefT ref
-  modify (\s -> s & num.nodesBecame.unnecessary %~ (+ 1))
+  modify (\s -> s & info.debug.nodesBecame.unnecessary %~ (+ 1))
   when (n^.handlers.numOnUpdates > 0) (handleAfterStabilization ref)
   modifyIORefT ref (\n0 -> n0 & height .~ (-1))
   removeChildren ref
@@ -60,7 +61,37 @@ handleAfterStabilization ref = do
   if n^.handlers.isInHandleAfterStb
      then return ()
      else do (modifyIORefT ref (\n0 -> n0 & handlers.isInHandleAfterStb .~ True))
-             -- TODO push to state.handle_after_stabilization
+             modify (\s -> s & handleAfterStb %~ (pack ref :))
+
+-- | An invalid node is node whose kind is [Invalid]
+-- A node's kind is set to [Invalid] when the lhs of its scope changes,
+-- or one if its children propagate the invalidity upward
+-- Invalidating a node disconnects it from its children, which means:
+--   1. an invalid node cannot end up on the scheduler
+--   2. an invalid node doesn't make its children necessary anymore.
+invalidateNode :: NodeRef a -> StateIO ()
+invalidateNode = undefined
+-- invalidateNode ref = do
+--   n <- readIORef ref
+--   when (N.isValid n) do
+--     n^.handlers.numOnUpdates > 0
+
+invalidateValidNode :: NodeRef a -> StateIO ()
+invalidateValidNode ref = do
+  env <- get
+  n   <- readIORefT ref
+  when (n^.handlers.numOnUpdates > 0) (handleAfterStabilization ref)
+  lift ( do N.setNodeValue ref Nothing
+            N.setChangedAt ref (env^.info.stbNum)
+            N.setRecomputedAt ref (env^.info.stbNum)
+       )
+
+
+addParent :: NodeRef a -> NodeRef b -> StateIO ()
+addParent child_ref par_ref = do
+  lift $ N.addParent child_ref par_ref
+  -- adjust height
+
 
 ---------------------------------- Helper --------------------------------------
 readIORefT :: (IORef a) -> StateIO a

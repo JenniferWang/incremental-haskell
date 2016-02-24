@@ -16,23 +16,18 @@ import Utils
 newNode :: IO (NodeRef a)
 newNode = do
   i <- newUnique
-  let p_info = ParentInfo 0 Nothing []
-      n_info = NodeInfo { nid             = i
-                        , _kind           = Invalid
-                        , _forceNecessary = False
-                        , _obsHead        = Nothing
-                        , _value          = ValueInfo Nothing (-1) (-1)
+  let n_info = NodeInfo { _nid    = i
+                        , _kind   = Invalid
+                        , _value  = ValueInfo Nothing (-1) (-1)
+                        , _numPar = 0
                         }
-      h_info = HeapInfo { _rec = RecHeapInfo (-1) Nothing Nothing
-                        , _adj = AdjHeapInfo (-1) Nothing
-                        }
-      node   = Node { _node   = n_info
-                    , _par    = p_info
+      n      = Node { _node   = n_info
+                    , _parents = []
                     , _height = -1
-                    , _heap   = h_info
                     , _handlers = HandlersInfo 0 False []
+                    , _obsHead = Nothing
                     }
-  newIORef node >>= return
+  newIORef n >>= return
 
 -- Checks whether n is a valid node
 -- it is if and only if its kind is valid
@@ -45,16 +40,11 @@ isValid0 (PackedNode ref) = fmap isValid $ readIORef ref
 
 -- | Check whether some IORef Node is the parent of current node
 isParent :: PackedNode -> Node a -> Bool
-isParent par_ref n
-  | n^.par.numPar == 0 = False
-  | otherwise = par_ref == fromJust (n^.par.par0)
-             || par_ref `elem` (n^.par.par1AndBeyond)
+isParent par_ref n = par_ref `elem` (n^.parents)
 
 -- | 'iteriChildren' iterates all the child nodes
 iteriChildren :: Node a -> (Index -> PackedNode -> b) -> [b]
-iteriChildren n g
-  | n^.par.numPar == 0 = []
-  | otherwise = K.iteriChildren (n^.node.kind) g
+iteriChildren n = K.iteriChildren (n^.node.kind)
 
 maxNumChildren :: Node a -> Int
 maxNumChildren n = K.maxNumChildren $ n^.node.kind
@@ -62,18 +52,12 @@ maxNumChildren n = K.maxNumChildren $ n^.node.kind
 -- | 'getParent' returns the ref to the parent node
 -- This is because later we might need to invalidate a node using this function
 getParent :: Node a -> Index -> PackedNode
-getParent n i =
-  if i == 0 then (fromJust $ n^.par.par0)
-            else (n^.par.par1AndBeyond) !! (i - 1)
+getParent n i = (n^.parents) !! i
 
 -- | 'iteriParents' iterates all the parent nodes
 iteriParents :: Node a -> (Index -> PackedNode -> b) -> [b]
-iteriParents n g
-  | n^.par.numPar == 0 = []
-  | otherwise            = g0 : rest
-    where g0               = g 0 (fromJust $ n^.par.par0)
-          apply_g (i, ref) = g i ref
-          rest             = map apply_g (zip [1..] (n^.par.par1AndBeyond))
+iteriParents n g = map apply_g (zip [0..] (n^.parents))
+  where apply_g (i, ref) = g i ref
 
 hasChild :: Node a -> PackedNode -> Bool
 hasChild n child = or $ iteriChildren n (\_ ref -> ref == child)
@@ -104,19 +88,25 @@ setKind ref k = modifyIORef' ref (\n -> n & node.kind.~ k)
 addParent :: NodeRef a -> NodeRef b -> IO ()
 addParent child parent = do
   c <- readIORef child
-  let c1 = c & par.numPar %~ (+1)
-  if (c^.par.numPar) == 0
-    then writeIORef child (c1 & par.par0 .~ Just (pack parent))
-    else writeIORef child (c1 & par.par1AndBeyond %~ (pack parent :))
+  let c1 = c & node.numPar %~ (+1)
+  writeIORef child (c1 & parents %~ (pack parent :))
 
 removeParent :: NodeRef a -> NodeRef b -> IO ()
 removeParent child parent = return ()
 
 isNecessary :: Node a -> Bool
-isNecessary n = (n^.par.numPar) > 0
-             || isJust (n^.node.obsHead)
+isNecessary n = (n^.node.numPar) > 0
+             || isJust (n^.obsHead)
              || K.isFreeze (n^.node.kind)
-             || n^.node.forceNecessary
+
+setNodeValue :: NodeRef a -> Maybe a -> IO ()
+setNodeValue ref new = modifyIORef' ref (\n -> n & node.value.v .~ new)
+
+setChangedAt :: NodeRef a -> StabilizationNum -> IO ()
+setChangedAt ref x = modifyIORef' ref (\n -> n & node.value.changedAt .~ x)
+
+setRecomputedAt :: NodeRef a -> StabilizationNum -> IO ()
+setRecomputedAt ref x = modifyIORef' ref (\n -> n & node.value.recomputedAt .~ x)
 
 -- | 'valueExn' extracts the value from the node
 valueExn :: Node a -> a
@@ -125,9 +115,6 @@ valueExn n
   | otherwise     = fromJust val
     where val = n^.node.value.v
 
-isInRecomputeHeap :: Node a -> Bool
-isInRecomputeHeap n = (n^.heap.rec.heightInRecHeap) >= 0
-
 test :: IO ()
 test = do
   ref1 <- newNode
@@ -135,14 +122,8 @@ test = do
   ref3 <- newNode
   addParent ref2 ref3
   addParent ref2 ref1
-  setKind ref1 Uninitialized
-  n1' <- readIORef ref1
-  n2' <- readIORef ref2
-  putStrLn $ "now n1 kind is " ++ show (n1'^.node.kind)
-  case head $ n2'^.par.par1AndBeyond of
-    PackedNode r -> do
-        n2_par <- readIORef r
-        putStrLn $ "now n2_par kind is " ++ show (n2_par^.node.kind)
+  return ()
+
 
 ---------------------------------- Helper --------------------------------------
 

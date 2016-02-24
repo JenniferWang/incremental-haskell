@@ -51,10 +51,10 @@ type NodeRef a = IORef (Node a)
 
 data Node a = Node {
     _node     :: NodeInfo a
-  , _par      :: ParentInfo
+  , _parents  :: [PackedNode]
   , _height   :: Height      -- ^ used to visit nodes in topological order
-  , _heap     :: HeapInfo
   , _handlers :: HandlersInfo a
+  , _obsHead  :: Maybe DummyType -- the head of the doubly-linked list of observers
   }
 
 -- | 'ValueInfo'
@@ -73,11 +73,10 @@ data ValueInfo a = ValueInfo {
   }
 
 data NodeInfo a = NodeInfo {
-    nid             :: Unique
-  , _kind           :: Kind a
-  , _forceNecessary :: Bool
-  , _obsHead        :: Maybe DummyType -- the head of the doubly-linked list of observers
-  , _value          :: ValueInfo a
+    _nid    :: Unique
+  , _kind   :: Kind a
+  , _value  :: ValueInfo a
+  , _numPar :: !Int
   }
 
 data HandlersInfo a = HandlersInfo {
@@ -90,28 +89,6 @@ data PackedNode = forall a. PackedNode (NodeRef a)
 
 instance Eq PackedNode where
    (==) (PackedNode ref1) (PackedNode ref2) = ref1 == unsafeCoerce ref2
-
-data ParentInfo  = ParentInfo {
-    _numPar        :: Int
-  , _par0          :: Maybe PackedNode
-  , _par1AndBeyond :: [PackedNode]
-  }
-
-data HeapInfo = HeapInfo {
-    _rec :: RecHeapInfo
-  , _adj :: AdjHeapInfo
-  }
-
-data RecHeapInfo = RecHeapInfo {
-    _heightInRecHeap :: Height
-  , _prevInRecHeap   :: Maybe PackedNode
-  , _nextInRecHeap   :: Maybe PackedNode
-  }
-
-data AdjHeapInfo = AdjHeapInfo {
-    _heightInAdjHeap :: Height
-  , _nextInAdjHeap   :: Maybe PackedNode
-  }
 
 ---------------------------------- Var ----------------------------------------
 data Var a = Var
@@ -131,72 +108,68 @@ data DummyType = DummyType
 data DummyType2 a = DummyType2
 
 ---------------------------------- State --------------------------------------
+type StateIO a = StateT StateInfo IO a
+
+data StateInfo = StateInfo {
+    _info           :: StatusInfo
+  , _recHeap        :: RecomputeHeap
+  , _adjHeap        :: AdjustHeightsHeap
+  , _handleAfterStb :: [PackedNode]
+  , _observer       :: ObserverInfo
+  }
+
 data Status = Stabilizing
             | RunningOnUpdateHandlers
             | NotStabilizing
             | StabilizePreviouslyRaised
 
-data StateInfo = StateInfo {
-    _status       :: Status
-  , _stb          :: StbInfo
-  , _obs          :: ObsInfo
-  , _setDuringStb :: DummyType
-  , _num          :: NumberInfo
+data StatusInfo = StatusInfo {
+    _status :: Status
+  , _stbNum :: StabilizationNum
+  , _debug  :: DebugInfo
   }
 
-type StateIO a = StateT StateInfo IO a
+-- | 'ObsInfo' stands for observer information
+data ObserverInfo = ObserverInfo {
+     _numActive  :: Int
+   , _all        :: [DummyType]
+   , _finalized  :: [DummyType]
+   , _new        :: [DummyType]
+   , _disallowed :: [DummyType]
+   }
 
 type StabilizationNum = Int
 
-data BecameInfo = BecameInfo {
-    _necessary   :: Int
-  , _unnecessary :: Int
-  }
-
-data RecomputedInfo = RecomputedInfo {
-    _byDefault                :: Int
-  , _directlyBecauseOneChild  :: Int
-  , _directlyBecauseMinHeight :: Int
-  }
-
-data NumberInfo = NumberInfo {
+---- These fields are for debugging and profiling
+data DebugInfo = DebugInfo {
     _nodesBecame      :: BecameInfo
   , _nodesChanged     :: Int
   , _nodesCreated     :: Int
   , _nodesInvalidated :: Int
   , _nodesRecomputed  :: RecomputedInfo
   , _varSets          :: Int
-  }
+  } deriving (Show)
 
--- | 'StbInfo' stands for stablization information
-data StbInfo = StbInfo {
-    _stbNum    :: StabilizationNum
-  , _currScope :: Scope
-  , _recHeap   :: RecomputeHeap
-  , _adjHeap   :: AdjustHeightsHeap
-  }
+data BecameInfo = BecameInfo {
+    _necessary   :: Int
+  , _unnecessary :: Int
+  } deriving (Show)
 
--- | 'ObsInfo' stands for observer information
-data ObsInfo = ObsInfo {
-     _numActive  :: Int
-   , _all        :: [DummyType]
-   , _finalized  :: DummyType
-   , _new        :: DummyType
-   , _disallowed :: DummyType
-   }
+data RecomputedInfo = RecomputedInfo {
+    _byDefault                :: Int
+  , _directlyBecauseOneChild  :: Int
+  , _directlyBecauseMinHeight :: Int
+  } deriving (Show)
+
 
 makeLenses ''Node
-makeLenses ''ParentInfo
 makeLenses ''StateInfo
-makeLenses ''StbInfo
-makeLenses ''ObsInfo
-makeLenses ''HeapInfo
-makeLenses ''RecHeapInfo
-makeLenses ''AdjHeapInfo
+makeLenses ''StatusInfo
+makeLenses ''ObserverInfo
 makeLenses ''NodeInfo
 makeLenses ''Freeze
 makeLenses ''ValueInfo
 makeLenses ''RecomputedInfo
-makeLenses ''NumberInfo
-makeLenses ''HandlersInfo
 makeLenses ''BecameInfo
+makeLenses ''HandlersInfo
+makeLenses ''DebugInfo
