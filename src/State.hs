@@ -2,8 +2,9 @@ module State where
 import Lens.Simple
 import Control.Monad.Trans.State.Strict
 import Control.Monad.Trans.Class
-import Control.Monad (when)
+import Control.Monad (when, sequence)
 import Data.IORef
+import qualified Data.Set as Set
 
 import Types
 import Utils
@@ -90,10 +91,23 @@ invalidateValidNode ref = do
 addParent :: NodeRef a -> NodeRef b -> StateIO ()
 addParent child_ref par_ref = do
   lift $ N.addParent child_ref par_ref
+  -- propagate_invalidity
+  -- became_necessary
   -- adjust height
 
+becameNecessary :: NodeRef a -> StateIO ()
+becameNecessary start = do
+  n <- readIORefT start
+  modify (\s -> s & info.debug.nodesBecame.necessary %~ (+ 1))
+  when (n^.handlers.numOnUpdates > 0) (handleAfterStabilization start)
 
--- recomputeEverythingNecessary :: 
+
+propagateInvalidity :: NodeRef a -> StateIO ()
+propagateInvalidity = undefined
+
+
+
+-- recomputeEverythingNecessary ::
 
 ---------------------------------- Helper --------------------------------------
 readIORefT :: (IORef a) -> StateIO a
@@ -101,3 +115,17 @@ readIORefT = (lift . readIORef)
 
 modifyIORefT :: (IORef a) -> (a -> a) -> StateIO ()
 modifyIORefT ref g = lift $ modifyIORef ref g
+
+dfsParent :: NodeRef a -> (PackedNode -> IO Bool) -> IO ()
+dfsParent start check = go (pack start) Set.empty
+  where
+    -- go stack path
+    go x path
+      | x `Set.member` path = error "Find a cycle"
+      | otherwise = do
+          result <- check x
+          when (not result) $ do
+            let (PackedNode ref) = x
+            node    <- readIORef ref
+            sequence_ $ N.iteriParents node (\_ pn -> go pn (Set.insert x path))
+

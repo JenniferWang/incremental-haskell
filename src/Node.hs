@@ -54,6 +54,9 @@ maxNumChildren n = K.maxNumChildren $ n^.node.kind
 getParent :: Node a -> Index -> PackedNode
 getParent n i = (n^.parents) !! i
 
+-- getParents :: Node a -> [PackedNode]
+-- getParents n = iteriParents n (\_ p -> p)
+
 -- | 'iteriParents' iterates all the parent nodes
 iteriParents :: Node a -> (Index -> PackedNode -> b) -> [b]
 iteriParents n g = map apply_g (zip [0..] (n^.parents))

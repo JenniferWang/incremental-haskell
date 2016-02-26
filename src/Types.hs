@@ -89,7 +89,7 @@ data HandlersInfo a = HandlersInfo {
 data PackedNode = forall a. PackedNode (NodeRef a)
 
 instance Eq PackedNode where
-   (==) (PackedNode ref1) (PackedNode ref2) = ref1 == unsafeCoerce ref2
+  (==) (PackedNode ref1) (PackedNode ref2) = ref1 == unsafeCoerce ref2
 
 ---------------------------------- Var ----------------------------------------
 data Var a = Var
