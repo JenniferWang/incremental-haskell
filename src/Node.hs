@@ -16,8 +16,7 @@ import Utils
 newNode :: IO (NodeRef a)
 newNode = do
   i <- newUnique
-  let n_info = NodeInfo { _nid    = i
-                        , _kind   = Invalid
+  let n_info = NodeInfo { _kind   = Invalid
                         , _value  = ValueInfo Nothing (-1) (-1)
                         , _numPar = 0
                         }
@@ -27,7 +26,8 @@ newNode = do
                     , _handlers = HandlersInfo 0 False []
                     , _obsHead = Nothing
                     }
-  newIORef n >>= return
+  ref  <- newIORef n
+  return (Ref ref i)
 
 -- Checks whether n is a valid node
 -- it is if and only if its kind is valid
@@ -36,7 +36,7 @@ isValid n = case (n^.node.kind) of Invalid -> False
                                    _       -> True
 
 isValid0 :: PackedNode -> IO Bool
-isValid0 (PackedNode ref) = fmap isValid $ readIORef ref
+isValid0 (PackedNode ref) = fmap isValid $ readIORef (getRef ref)
 
 -- | Check whether some IORef Node is the parent of current node
 isParent :: PackedNode -> Node a -> Bool
@@ -70,7 +70,7 @@ hasInvalidChild n = or <$>
   (sequence $ iteriChildren n (\_ ref -> not <$> (isValid0 ref)))
 
 hasInvalidChild0 :: NodeRef a-> IO Bool
-hasInvalidChild0 ref = readIORef ref >>= hasInvalidChild
+hasInvalidChild0 ref = readIORef (getRef ref) >>= hasInvalidChild
 
 hasParent :: Node a -> PackedNode -> Bool
 hasParent n parent = or $ iteriParents n (\_ ref -> ref == parent)
@@ -81,7 +81,7 @@ shouldBeInvalidated n =
                          _           -> return False
 
 setKind :: NodeRef a -> Kind a -> IO ()
-setKind ref k = modifyIORef' ref (\n -> n & node.kind.~ k)
+setKind ref k = modifyIORef' (getRef ref) (\n -> n & node.kind.~ k)
 
 
 -- | 'addParent' adds the parent node to the child node's parent list
@@ -90,9 +90,9 @@ setKind ref k = modifyIORef' ref (\n -> n & node.kind.~ k)
 -- https://github.com/janestreet/incremental/blob/master/src/node.ml#L519
 addParent :: NodeRef a -> NodeRef b -> IO ()
 addParent child parent = do
-  c <- readIORef child
+  c <- readIORef (getRef child)
   let c1 = c & node.numPar %~ (+1)
-  writeIORef child (c1 & parents %~ (pack parent :))
+  writeIORef (getRef child) (c1 & parents %~ (pack parent :))
 
 removeParent :: NodeRef a -> NodeRef b -> IO ()
 removeParent child parent = return ()
@@ -103,13 +103,16 @@ isNecessary n = (n^.node.numPar) > 0
              || K.isFreeze (n^.node.kind)
 
 setNodeValue :: NodeRef a -> Maybe a -> IO ()
-setNodeValue ref new = modifyIORef' ref (\n -> n & node.value.v .~ new)
+setNodeValue ref new = modifyIORef' (getRef ref)
+                                    (\n -> n & node.value.v .~ new)
 
 setChangedAt :: NodeRef a -> StabilizationNum -> IO ()
-setChangedAt ref x = modifyIORef' ref (\n -> n & node.value.changedAt .~ x)
+setChangedAt ref x = modifyIORef' (getRef ref)
+                                  (\n -> n & node.value.changedAt .~ x)
 
 setRecomputedAt :: NodeRef a -> StabilizationNum -> IO ()
-setRecomputedAt ref x = modifyIORef' ref (\n -> n & node.value.recomputedAt .~ x)
+setRecomputedAt ref x = modifyIORef' (getRef ref)
+                                     (\n -> n & node.value.recomputedAt .~ x)
 
 -- | 'valueExn' extracts the value from the node
 valueExn :: Node a -> a

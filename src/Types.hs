@@ -7,7 +7,6 @@ module Types
 import Data.IORef
 import Data.Unique
 import Data.Heap (Heap,Entry(..))
-import Unsafe.Coerce
 import Control.Monad.Trans.State.Strict hiding (State)
 
 import Lens.Simple
@@ -48,7 +47,13 @@ data Freeze a = Freeze {
   }
 
 ---------------------------------- Node ---------------------------------------
-type NodeRef a = IORef (Node a)
+data NodeRef a = Ref (IORef (Node a)) !Unique
+
+getID :: NodeRef a -> Unique
+getID (Ref ref id) = id
+
+getRef :: NodeRef a -> IORef (Node a)
+getRef (Ref ref id) = ref
 
 data Node a = Node {
     _node     :: NodeInfo a
@@ -74,8 +79,7 @@ data ValueInfo a = ValueInfo {
   }
 
 data NodeInfo a = NodeInfo {
-    _nid    :: Unique
-  , _kind   :: Kind a
+    _kind   :: Kind a
   , _value  :: ValueInfo a
   , _numPar :: !Int
   }
@@ -89,8 +93,10 @@ data HandlersInfo a = HandlersInfo {
 data PackedNode = forall a. PackedNode (NodeRef a)
 
 instance Eq PackedNode where
-  (==) (PackedNode ref1) (PackedNode ref2) = ref1 == unsafeCoerce ref2
+  (==) (PackedNode ref1) (PackedNode ref2) = (getID ref1) == (getID ref2)
 
+instance Ord PackedNode where
+  (<=) (PackedNode ref1) (PackedNode ref2) = (getID ref1) <= (getID ref2)
 ---------------------------------- Var ----------------------------------------
 data Var a = Var
 

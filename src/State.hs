@@ -2,7 +2,7 @@ module State where
 import Lens.Simple
 import Control.Monad.Trans.State.Strict
 import Control.Monad.Trans.Class
-import Control.Monad (when, sequence)
+import Control.Monad (when)
 import Data.IORef
 import qualified Data.Set as Set
 
@@ -34,35 +34,35 @@ setMaxHeightAllowed h = do
 
 removeChildren :: NodeRef a -> StateIO ()
 removeChildren par_ref = do
-  par_node <- readIORefT par_ref
+  par_node <- readIORefT (getRef par_ref)
   sequence_ $ N.iteriChildren par_node (\_ (PackedNode child_ref) ->
     do lift (N.removeParent child_ref par_ref)
        checkIfUnnecessary child_ref
     )
 
 checkIfUnnecessary :: NodeRef a -> StateIO ()
-checkIfUnnecessary ref = do
+checkIfUnnecessary nf@(Ref ref _) = do
   n <- readIORefT ref
   if (N.isNecessary n) then return ()
-                       else becameUnnecessary ref
+                       else becameUnnecessary nf
 
 becameUnnecessary :: NodeRef a -> StateIO ()
-becameUnnecessary ref = do
+becameUnnecessary nf@(Ref ref _)= do
   n <- readIORefT ref
   modify (\s -> s & info.debug.nodesBecame.unnecessary %~ (+ 1))
-  when (n^.handlers.numOnUpdates > 0) (handleAfterStabilization ref)
+  when (n^.handlers.numOnUpdates > 0) (handleAfterStabilization nf)
   modifyIORefT ref (\n0 -> n0 & height .~ (-1))
-  removeChildren ref
+  removeChildren nf
   -- TODO: kind = Unordered_array_fold / UnorderedArrayFold
   -- TODO: when (N.isInRecomputeHeap n) (remove from recompute heap)
 
 handleAfterStabilization :: NodeRef a -> StateIO ()
-handleAfterStabilization ref = do
+handleAfterStabilization nf@(Ref ref _) = do
   n <- readIORefT ref
   if n^.handlers.isInHandleAfterStb
      then return ()
      else do (modifyIORefT ref (\n0 -> n0 & handlers.isInHandleAfterStb .~ True))
-             modify (\s -> s & handleAfterStb %~ (pack ref :))
+             modify (\s -> s & handleAfterStb %~ (pack nf :))
 
 -- | An invalid node is node whose kind is [Invalid]
 -- A node's kind is set to [Invalid] when the lhs of its scope changes,
@@ -78,13 +78,13 @@ invalidateNode = undefined
 --     n^.handlers.numOnUpdates > 0
 
 invalidateValidNode :: NodeRef a -> StateIO ()
-invalidateValidNode ref = do
+invalidateValidNode nf@(Ref ref _) = do
   env <- get
   n   <- readIORefT ref
-  when (n^.handlers.numOnUpdates > 0) (handleAfterStabilization ref)
-  lift ( do N.setNodeValue ref Nothing
-            N.setChangedAt ref (env^.info.stbNum)
-            N.setRecomputedAt ref (env^.info.stbNum)
+  when (n^.handlers.numOnUpdates > 0) (handleAfterStabilization nf)
+  lift ( do N.setNodeValue nf Nothing
+            N.setChangedAt nf (env^.info.stbNum)
+            N.setRecomputedAt nf (env^.info.stbNum)
        )
 
 
@@ -96,16 +96,14 @@ addParent child_ref par_ref = do
   -- adjust height
 
 becameNecessary :: NodeRef a -> StateIO ()
-becameNecessary start = do
+becameNecessary nf@(Ref start _) = do
   n <- readIORefT start
   modify (\s -> s & info.debug.nodesBecame.necessary %~ (+ 1))
-  when (n^.handlers.numOnUpdates > 0) (handleAfterStabilization start)
+  when (n^.handlers.numOnUpdates > 0) (handleAfterStabilization nf)
 
 
 propagateInvalidity :: NodeRef a -> StateIO ()
 propagateInvalidity = undefined
-
-
 
 -- recomputeEverythingNecessary ::
 
@@ -124,8 +122,8 @@ dfsParent start check = go (pack start) Set.empty
       | x `Set.member` path = error "Find a cycle"
       | otherwise = do
           result <- check x
-          when (not result) $ do
-            let (PackedNode ref) = x
-            node    <- readIORef ref
-            sequence_ $ N.iteriParents node (\_ pn -> go pn (Set.insert x path))
+          when (not result) (rec x path)
+    rec x@(PackedNode ref) path0 = do
+      n <- readIORef (getRef ref)
+      sequence_ $ N.iteriParents n (\_ pn -> go pn (Set.insert x path0))
 
