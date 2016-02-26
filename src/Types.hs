@@ -49,6 +49,9 @@ data Freeze a = Freeze {
 ---------------------------------- Node ---------------------------------------
 data NodeRef a = Ref (IORef (Node a)) !Unique
 
+instance Show (NodeRef a) where
+  show (Ref _ index) = show $ hashUnique index
+
 getID :: NodeRef a -> Unique
 getID (Ref ref id) = id
 
@@ -97,6 +100,9 @@ instance Eq PackedNode where
 
 instance Ord PackedNode where
   (<=) (PackedNode ref1) (PackedNode ref2) = (getID ref1) <= (getID ref2)
+
+instance Show PackedNode where
+  show (PackedNode ref) = show ref
 ---------------------------------- Var ----------------------------------------
 data Var a = Var
 
@@ -106,7 +112,14 @@ data Scope = Scope
 ---------------------------------- Heap ---------------------------------------
 type RecomputeHeap = Heap (Entry Height PackedNode)
 
+initRecHeap :: RecomputeHeap
+-- TODO
+initRecHeap = undefined
+
 data AdjustHeightsHeap = AdjustHeightsHeap
+
+initAdjHeap :: AdjustHeightsHeap
+initAdjHeap = AdjustHeightsHeap
 
 ---------------------------------- Observers ----------------------------------
 
@@ -125,16 +138,25 @@ data StateInfo = StateInfo {
   , _observer       :: ObserverInfo
   }
 
+initState :: StateInfo
+initState = StateInfo initStatusInfo initRecHeap initAdjHeap [] initObserverInfo
+
 data Status = Stabilizing
             | RunningOnUpdateHandlers
             | NotStabilizing
             | StabilizePreviouslyRaised
+
+initStatus :: Status
+initStatus= Stabilizing
 
 data StatusInfo = StatusInfo {
     _status :: Status
   , _stbNum :: StabilizationNum
   , _debug  :: DebugInfo
   }
+
+initStatusInfo :: StatusInfo
+initStatusInfo = StatusInfo initStatus initStbNum initDebugInfo
 
 -- | 'ObsInfo' stands for observer information
 data ObserverInfo = ObserverInfo {
@@ -145,7 +167,12 @@ data ObserverInfo = ObserverInfo {
    , _disallowed :: [DummyType]
    }
 
+initObserverInfo :: ObserverInfo
+initObserverInfo = ObserverInfo 0 [] [] [] []
+
 type StabilizationNum = Int
+initStbNum :: StabilizationNum
+initStbNum = 0
 
 ---- These fields are for debugging and profiling
 data DebugInfo = DebugInfo {
@@ -157,10 +184,16 @@ data DebugInfo = DebugInfo {
   , _varSets          :: Int
   } deriving (Show)
 
+initDebugInfo :: DebugInfo
+initDebugInfo = DebugInfo initBecameInfo 0 0 0 initRecomputedInfo 0
+
 data BecameInfo = BecameInfo {
     _necessary   :: Int
   , _unnecessary :: Int
   } deriving (Show)
+
+initBecameInfo :: BecameInfo
+initBecameInfo = BecameInfo 0 0
 
 data RecomputedInfo = RecomputedInfo {
     _byDefault                :: Int
@@ -168,6 +201,8 @@ data RecomputedInfo = RecomputedInfo {
   , _directlyBecauseMinHeight :: Int
   } deriving (Show)
 
+initRecomputedInfo :: RecomputedInfo
+initRecomputedInfo = RecomputedInfo 0 0 0
 
 makeLenses ''Node
 makeLenses ''StateInfo

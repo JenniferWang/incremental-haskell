@@ -2,8 +2,10 @@ module State where
 import Lens.Simple
 import Control.Monad.Trans.State.Strict
 import Control.Monad.Trans.Class
-import Control.Monad (when)
+import Control.Monad.Trans.Identity
+import Control.Monad (when, foldM)
 import Data.IORef
+import Data.Set (Set)
 import qualified Data.Set as Set
 
 import Types
@@ -70,8 +72,13 @@ handleAfterStabilization nf@(Ref ref _) = do
 -- Invalidating a node disconnects it from its children, which means:
 --   1. an invalid node cannot end up on the scheduler
 --   2. an invalid node doesn't make its children necessary anymore.
-invalidateNode :: NodeRef a -> StateIO ()
+invalidateNode :: PackedNode -> StateIO Bool
 invalidateNode = undefined
+-- invalidateNode (PackedNode ref) = do
+  -- n <- readIORefT (getRef ref)
+  -- if not (N.isValid n)
+  --    then return True
+  --    else
 -- invalidateNode ref = do
 --   n <- readIORef ref
 --   when (N.isValid n) do
@@ -87,6 +94,9 @@ invalidateValidNode nf@(Ref ref _) = do
             N.setRecomputedAt nf (env^.info.stbNum)
        )
 
+-- | use dfs to propagate Invalidity to parent nodes
+propagateInvalidity :: NodeRef a -> StateIO ()
+propagateInvalidity ref = dfsParent ref invalidateNode
 
 addParent :: NodeRef a -> NodeRef b -> StateIO ()
 addParent child_ref par_ref = do
@@ -95,17 +105,11 @@ addParent child_ref par_ref = do
   -- became_necessary
   -- adjust height
 
-becameNecessary :: NodeRef a -> StateIO ()
-becameNecessary nf@(Ref start _) = do
-  n <- readIORefT start
-  modify (\s -> s & info.debug.nodesBecame.necessary %~ (+ 1))
-  when (n^.handlers.numOnUpdates > 0) (handleAfterStabilization nf)
-
-
-propagateInvalidity :: NodeRef a -> StateIO ()
-propagateInvalidity = undefined
-
--- recomputeEverythingNecessary ::
+-- becameNecessary :: NodeRef a -> StateIO ()
+-- becameNecessary nf@(Ref start _) = do
+--   n <- readIORefT start
+--   modify (\s -> s & info.debug.nodesBecame.necessary %~ (+ 1))
+--   when (n^.handlers.numOnUpdates > 0) (handleAfterStabilization nf)
 
 ---------------------------------- Helper --------------------------------------
 readIORefT :: (IORef a) -> StateIO a
@@ -114,16 +118,54 @@ readIORefT = (lift . readIORef)
 modifyIORefT :: (IORef a) -> (a -> a) -> StateIO ()
 modifyIORefT ref g = lift $ modifyIORef ref g
 
-dfsParent :: NodeRef a -> (PackedNode -> IO Bool) -> IO ()
-dfsParent start check = go (pack start) Set.empty
+-- | DFS parent nodes with a function 'check'. If 'check' returns True, then
+-- continue searching for parent; otherwise, return
+dfsParent :: (MonadTrans t, Monad (t IO)) =>
+             NodeRef a -> (PackedNode -> t IO Bool) -> t IO ()
+dfsParent start check = go (pack start) Set.empty Set.empty >> return ()
   where
-    -- go stack path
-    go x path
+    -- go node path seen -> IO (seen)
+    go x path seen
       | x `Set.member` path = error "Find a cycle"
+      | x `Set.member` seen = return seen
       | otherwise = do
           result <- check x
-          when (not result) (rec x path)
-    rec x@(PackedNode ref) path0 = do
-      n <- readIORef (getRef ref)
-      sequence_ $ N.iteriParents n (\_ pn -> go pn (Set.insert x path0))
+          if result  then (rec x path seen) >>= return . (Set.insert x)
+                     else return seen
+    rec y@(PackedNode ref) path0 seen0 = do
+      n <- (lift . readIORef) (getRef ref)
+      let new_path = Set.insert y path0
+      foldM (\s pn -> go pn new_path (Set.insert y s)) seen0 (N.getParents n)
+
+dfsParentP :: (MonadTrans t, Monad (t IO)) =>
+              PackedNode -> (PackedNode -> t IO Bool) -> t IO ()
+dfsParentP (PackedNode nf) check = dfsParent nf check
+
+
+---------------------------------- Toy Test --------------------------------------
+-- | Create a graph for testing
+testCreateGraph :: IO [PackedNode]
+testCreateGraph = do
+  n1 <- N.newNode
+  n2 <- N.newNode
+  n3 <- N.newNode
+  n4 <- N.newNode
+  N.addParent n1 n2
+  N.addParent n1 n3
+  N.addParent n2 n4
+  N.addParent n3 n4
+  return [pack n1, pack n2, pack n3, pack n4]
+
+testPrintNode :: PackedNode -> StateIO Bool
+testPrintNode pn = do
+  (lift . putStrLn) $ "Reach node " ++ show pn
+  return True
+
+-- | try to do dfs from a node and print the node id visited
+testDfsParent :: IO ()
+testDfsParent = do
+  nodes <- testCreateGraph
+  mapM_ (\n -> putStrLn $ "The graph has node id = " ++ show n) nodes
+  runStateT (dfsParentP (nodes !! 0) testPrintNode) initState
+  return ()
 

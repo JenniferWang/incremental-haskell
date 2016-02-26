@@ -54,8 +54,8 @@ maxNumChildren n = K.maxNumChildren $ n^.node.kind
 getParent :: Node a -> Index -> PackedNode
 getParent n i = (n^.parents) !! i
 
--- getParents :: Node a -> [PackedNode]
--- getParents n = iteriParents n (\_ p -> p)
+getParents :: Node a -> [PackedNode]
+getParents n = iteriParents n (\_ p -> p)
 
 -- | 'iteriParents' iterates all the parent nodes
 iteriParents :: Node a -> (Index -> PackedNode -> b) -> [b]
@@ -103,8 +103,8 @@ isNecessary n = (n^.node.numPar) > 0
              || K.isFreeze (n^.node.kind)
 
 setNodeValue :: NodeRef a -> Maybe a -> IO ()
-setNodeValue ref new = modifyIORef' (getRef ref)
-                                    (\n -> n & node.value.v .~ new)
+setNodeValue ref v0 = modifyIORef' (getRef ref)
+                                    (\n -> n & node.value.v .~ v0)
 
 setChangedAt :: NodeRef a -> StabilizationNum -> IO ()
 setChangedAt ref x = modifyIORef' (getRef ref)
