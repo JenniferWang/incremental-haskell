@@ -26,17 +26,23 @@ initHeight = 0
 --   Kind.maxNumChildren
 --   Node.shouldBeInvalidated
 --
+-- An [Freeze a] is a kind of DAG node that takes on the value of another node
+-- and doesn't change thereafter.
+
 data Kind a =
     Const a
-  | FreezeNode (Freeze a)
+  | Freeze { mainNode       :: NodeRef a
+           , childNode      :: NodeRef a
+           , onlyFreezeWhen :: (a -> Bool)
+           }
   | Invalid
-  | forall b. Map (b -> a) (NodeRef a) -- TODO: not sure about this
+  | forall b. Eq b => Map (b -> a) (NodeRef b)
   | Uninitialized
   | Variable (Var a)
 
 instance Show (Kind a) where
   show (Const _)      = "Const"
-  show (FreezeNode _) = "Freeze"
+  show (Freeze _ _ _) = "Freeze"
   show Invalid        = "Invalid"
   show (Map _ _)      = "Map"
   show Uninitialized  = "Uninitialized"
@@ -45,21 +51,17 @@ instance Show (Kind a) where
 initKind :: Kind a
 initKind = Uninitialized
 
----------------------------------- Freeze -------------------------------------
--- | An [Freeze a] is a kind of DAG node that takes on the value of another node
--- and doesn't change thereafter.
-
-data Freeze a = Freeze {
-    _mainNode       :: NodeRef a
-  , _childNode      :: NodeRef a
-  , _onlyFreezeWhen :: a -> Bool
-  }
-
 ---------------------------------- Node ---------------------------------------
 data NodeRef a = Ref (IORef (Node a)) !Unique
 
 instance Show (NodeRef a) where
   show (Ref _ index) = show $ hashUnique index
+
+instance Eq (NodeRef a) where
+  (==) (Ref _ i1) (Ref _ i2) = i1 == i2
+
+instance Ord (NodeRef a) where
+  (<=) (Ref _ i1) (Ref _ i2) = i1 <= i2
 
 getID :: NodeRef a -> Unique
 getID (Ref ref id) = id
@@ -89,12 +91,13 @@ initNode = Node initNodeInfo empty initHeight initHandlersInfo Nothing
 --    used to detect the node's parents are stale and need to be recomputed
 data ValueInfo a = ValueInfo {
     _v            :: Maybe a
+  , _oldValue     :: Maybe a
   , _recomputedAt :: StabilizationNum
   , _changedAt    :: StabilizationNum
   }
 
 initValueInfo :: ValueInfo a
-initValueInfo = ValueInfo Nothing initStbNum initStbNum
+initValueInfo = ValueInfo Nothing Nothing initStbNum initStbNum
 
 data NodeInfo a = NodeInfo {
     _kind   :: Kind a
@@ -114,7 +117,7 @@ data HandlersInfo a = HandlersInfo {
 initHandlersInfo :: HandlersInfo a
 initHandlersInfo = HandlersInfo 0 False []
 
-data PackedNode = forall a. PackedNode (NodeRef a)
+data PackedNode = forall a. Eq a => PackedNode (NodeRef a)
 
 instance Eq PackedNode where
   (==) (PackedNode ref1) (PackedNode ref2) = (getID ref1) == (getID ref2)
@@ -125,7 +128,12 @@ instance Ord PackedNode where
 instance Show PackedNode where
   show (PackedNode ref) = show ref
 ---------------------------------- Var ----------------------------------------
-data Var a = Var
+data Var a = Var {
+    mvalue            :: !a
+  , valueSetDuringStb :: !(Maybe a)
+  , setAt             :: StabilizationNum
+  , watch             :: NodeRef a
+  }
 
 ---------------------------------- Scope --------------------------------------
 data Scope = Scope
@@ -224,7 +232,6 @@ makeLenses ''StateInfo
 makeLenses ''StatusInfo
 makeLenses ''ObserverInfo
 makeLenses ''NodeInfo
-makeLenses ''Freeze
 makeLenses ''ValueInfo
 makeLenses ''RecomputedInfo
 makeLenses ''BecameInfo

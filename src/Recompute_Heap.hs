@@ -3,6 +3,7 @@ module Recompute_Heap where
 import Types
 
 import Data.Heap (Heap,Entry(..))
+import Data.Maybe (fromJust)
 import qualified Data.Heap as H
 import Data.IORef
 
@@ -20,11 +21,12 @@ import Lens.Simple
 length :: RecomputeHeap -> Int
 length = H.size
 
+isEmpty :: RecomputeHeap -> Bool
+isEmpty r = (Recompute_Heap.length r) == 0
+
 -- | add a node to heap
-add :: PackedNode -> RecomputeHeap -> IO RecomputeHeap
-add (PackedNode node_ref) rec_heap = do
-          n <- readIORef (getRef node_ref)
-          return (H.insert (Entry (n^.height) (PackedNode node_ref)) rec_heap)
+add :: (Height, PackedNode) -> RecomputeHeap -> RecomputeHeap
+add (h, pn) = H.insert (Entry h pn)
 
 -- | removes a node from heap
 remove :: PackedNode -> RecomputeHeap -> RecomputeHeap
@@ -37,3 +39,5 @@ pop rec_heap = case H.uncons rec_heap of
           Just ((Entry _ packed_node),heap) -> Just (packed_node, heap)
           Nothing                           -> Nothing
 
+pop1 :: RecomputeHeap -> (PackedNode, RecomputeHeap)
+pop1 = fromJust . pop

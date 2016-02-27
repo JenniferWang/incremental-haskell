@@ -3,6 +3,6 @@ module Utils
 
 import Types
 
-pack :: NodeRef a -> PackedNode
+pack :: (Eq a) => NodeRef a -> PackedNode
 pack = PackedNode
 
