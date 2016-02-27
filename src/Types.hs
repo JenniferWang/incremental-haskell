@@ -6,20 +6,26 @@ module Types
 
 import Data.IORef
 import Data.Unique
+import Data.Set (Set, empty)
 import Data.Heap (Heap,Entry(..))
 import Control.Monad.Trans.State.Strict hiding (State)
 
 import Lens.Simple
-
 type Index = Int
 type Height = Int
+
+initHeight :: Height
+initHeight = 0
 
 ---------------------------------- Kind ---------------------------------------
 -- Kind stores the computational information of each node.
 -- https://github.com/janestreet/incremental/blob/master/src/kind.mli
 
--- Here I didn't use a IORef for Node because none of the methods in this module
--- will cause mutation
+-- When you add a new kind, please update the following functions:
+--   Kind.iteriChildren
+--   Kind.maxNumChildren
+--   Node.shouldBeInvalidated
+--
 data Kind a =
     Const a
   | FreezeNode (Freeze a)
@@ -29,12 +35,15 @@ data Kind a =
   | Variable (Var a)
 
 instance Show (Kind a) where
-  show (Const _)     = "Const"
-  show (FreezeNode _)    = "Freeze"
-  show Invalid       = "Invalid"
-  show (Map _ _)     = "Map"
-  show Uninitialized = "Uninitialized"
-  show (Variable _)  = "Var"
+  show (Const _)      = "Const"
+  show (FreezeNode _) = "Freeze"
+  show Invalid        = "Invalid"
+  show (Map _ _)      = "Map"
+  show Uninitialized  = "Uninitialized"
+  show (Variable _)   = "Var"
+
+initKind :: Kind a
+initKind = Uninitialized
 
 ---------------------------------- Freeze -------------------------------------
 -- | An [Freeze a] is a kind of DAG node that takes on the value of another node
@@ -60,11 +69,14 @@ getRef (Ref ref id) = ref
 
 data Node a = Node {
     _node     :: NodeInfo a
-  , _parents  :: [PackedNode]
+  , _parents  :: Set PackedNode
   , _height   :: Height      -- ^ used to visit nodes in topological order
   , _handlers :: HandlersInfo a
   , _obsHead  :: Maybe DummyType -- the head of the doubly-linked list of observers
   }
+
+initNode :: Node a
+initNode = Node initNodeInfo empty initHeight initHandlersInfo Nothing
 
 -- | 'ValueInfo'
 -- [_v]
@@ -81,17 +93,26 @@ data ValueInfo a = ValueInfo {
   , _changedAt    :: StabilizationNum
   }
 
+initValueInfo :: ValueInfo a
+initValueInfo = ValueInfo Nothing initStbNum initStbNum
+
 data NodeInfo a = NodeInfo {
     _kind   :: Kind a
   , _value  :: ValueInfo a
   , _numPar :: !Int
   }
 
+initNodeInfo :: NodeInfo a
+initNodeInfo = NodeInfo initKind initValueInfo 0
+
 data HandlersInfo a = HandlersInfo {
     _numOnUpdates       :: Int
   , _isInHandleAfterStb :: Bool
   , _onUpdates          :: [DummyType2 a]
   }
+
+initHandlersInfo :: HandlersInfo a
+initHandlersInfo = HandlersInfo 0 False []
 
 data PackedNode = forall a. PackedNode (NodeRef a)
 
@@ -116,11 +137,6 @@ initRecHeap :: RecomputeHeap
 -- TODO
 initRecHeap = undefined
 
-data AdjustHeightsHeap = AdjustHeightsHeap
-
-initAdjHeap :: AdjustHeightsHeap
-initAdjHeap = AdjustHeightsHeap
-
 ---------------------------------- Observers ----------------------------------
 
 data DummyType = DummyType
@@ -133,13 +149,12 @@ type StateIO a = StateT StateInfo IO a
 data StateInfo = StateInfo {
     _info           :: StatusInfo
   , _recHeap        :: RecomputeHeap
-  , _adjHeap        :: AdjustHeightsHeap
   , _handleAfterStb :: [PackedNode]
   , _observer       :: ObserverInfo
   }
 
 initState :: StateInfo
-initState = StateInfo initStatusInfo initRecHeap initAdjHeap [] initObserverInfo
+initState = StateInfo initStatusInfo initRecHeap [] initObserverInfo
 
 data Status = Stabilizing
             | RunningOnUpdateHandlers

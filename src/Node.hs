@@ -4,6 +4,7 @@ import Data.IORef
 import Data.Unique
 import Prelude hiding (id)
 import Data.Maybe(fromJust, isJust, isNothing)
+import qualified Data.Set as Set
 
 import Lens.Simple
 
@@ -16,17 +17,7 @@ import Utils
 newNode :: IO (NodeRef a)
 newNode = do
   i <- newUnique
-  let n_info = NodeInfo { _kind   = Invalid
-                        , _value  = ValueInfo Nothing (-1) (-1)
-                        , _numPar = 0
-                        }
-      n      = Node { _node   = n_info
-                    , _parents = []
-                    , _height = -1
-                    , _handlers = HandlersInfo 0 False []
-                    , _obsHead = Nothing
-                    }
-  ref  <- newIORef n
+  ref  <- newIORef initNode
   return (Ref ref i)
 
 -- Checks whether n is a valid node
@@ -35,8 +26,8 @@ isValid :: Node a -> Bool
 isValid n = case (n^.node.kind) of Invalid -> False
                                    _       -> True
 
-isValid0 :: PackedNode -> IO Bool
-isValid0 (PackedNode ref) = fmap isValid $ readIORef (getRef ref)
+isValidP :: PackedNode -> IO Bool
+isValidP (PackedNode ref) = fmap isValid $ readIORef (getRef ref)
 
 -- | Check whether some IORef Node is the parent of current node
 isParent :: PackedNode -> Node a -> Bool
@@ -49,17 +40,12 @@ iteriChildren n = K.iteriChildren (n^.node.kind)
 maxNumChildren :: Node a -> Int
 maxNumChildren n = K.maxNumChildren $ n^.node.kind
 
--- | 'getParent' returns the ref to the parent node
--- This is because later we might need to invalidate a node using this function
-getParent :: Node a -> Index -> PackedNode
-getParent n i = (n^.parents) !! i
-
 getParents :: Node a -> [PackedNode]
 getParents n = iteriParents n (\_ p -> p)
 
 -- | 'iteriParents' iterates all the parent nodes
 iteriParents :: Node a -> (Index -> PackedNode -> b) -> [b]
-iteriParents n g = map apply_g (zip [0..] (n^.parents))
+iteriParents n g = map apply_g (zip [0..] (Set.toList $ n^.parents))
   where apply_g (i, ref) = g i ref
 
 hasChild :: Node a -> PackedNode -> Bool
@@ -67,7 +53,7 @@ hasChild n child = or $ iteriChildren n (\_ ref -> ref == child)
 
 hasInvalidChild :: Node a -> IO Bool
 hasInvalidChild n = or <$>
-  (sequence $ iteriChildren n (\_ ref -> not <$> (isValid0 ref)))
+  (sequence $ iteriChildren n (\_ ref -> not <$> (isValidP ref)))
 
 hasInvalidChild0 :: NodeRef a-> IO Bool
 hasInvalidChild0 ref = readIORef (getRef ref) >>= hasInvalidChild
@@ -89,13 +75,17 @@ setKind ref k = modifyIORef' (getRef ref) (\n -> n & node.kind.~ k)
 -- The OCaml version takes the child_index for performance reason.
 -- https://github.com/janestreet/incremental/blob/master/src/node.ml#L519
 addParent :: NodeRef a -> NodeRef b -> IO ()
-addParent child parent = do
-  c <- readIORef (getRef child)
-  let c1 = c & node.numPar %~ (+1)
-  writeIORef (getRef child) (c1 & parents %~ (pack parent :))
+addParent (Ref cref _) parent = do
+  c <- readIORef cref
+  let c1 = c & node.numPar %~ (+ 1)
+  writeIORef cref (c1 & parents %~ (Set.insert $ pack parent))
 
+-- | 'removeParent' does not check whether [parent] is a true parent of [child]
 removeParent :: NodeRef a -> NodeRef b -> IO ()
-removeParent child parent = return ()
+removeParent (Ref cref _) parent = do
+  c <- readIORef cref
+  let c1 = c & node.numPar %~ ((-) 1)
+  writeIORef cref (c1 & parents %~ (Set.delete $ pack parent))
 
 isNecessary :: Node a -> Bool
 isNecessary n = (n^.node.numPar) > 0
@@ -113,6 +103,15 @@ setChangedAt ref x = modifyIORef' (getRef ref)
 setRecomputedAt :: NodeRef a -> StabilizationNum -> IO ()
 setRecomputedAt ref x = modifyIORef' (getRef ref)
                                      (\n -> n & node.value.recomputedAt .~ x)
+
+getHeight :: NodeRef a -> IO Height
+getHeight ref = readIORef (getRef ref) >>= \n -> return (n^.height)
+
+getHeightP :: PackedNode -> IO Height
+getHeightP (PackedNode noderef) = getHeight noderef
+
+setHeight :: NodeRef a -> Height -> IO ()
+setHeight ref h = modifyIORef (getRef ref) (\n -> n & height .~ h)
 
 -- | 'valueExn' extracts the value from the node
 valueExn :: Node a -> a
