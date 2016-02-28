@@ -17,8 +17,10 @@ useIsAllowed o = case (_state o) of Created    -> True
                                     Disallowed -> False
                                     Unlinked   -> False
 
------------------------------- StateIO Monad -------------------------------
+writeObsState :: ObsState -> PackedObs -> PackedObs
+writeObsState new_state (PackedObs o) = PackedObs (o{_state = new_state})
 
+------------------------------ StateIO Monad -------------------------------
 obsValueExn :: Eq a => Observer a -> StateIO a
 obsValueExn o = case (o^.state) of
                   -- TODO: change to failwith
@@ -34,4 +36,21 @@ unlinkFmObserving ob = N.removeObs (ob^.observing) (ob^.obsID)
 
 unlinkFmAll :: Eq a => Observer a -> StateIO ()
 unlinkFmAll ob = modify (\s -> s & observer.all %~ (Map.delete $ ob^.obsID))
+
+unlink :: Eq a => Observer a -> StateIO ()
+unlink ob = unlinkFmObserving ob >> unlinkFmAll ob
+
+unlinkP :: PackedObs -> StateIO ()
+unlinkP (PackedObs ob) = unlink ob
+
+getObsByID :: ObsID -> StateIO PackedObs
+getObsByID i = do
+  env <- get
+  return $ (env^.observer.all) Map.! i
+
+modifyObs :: (PackedObs -> PackedObs) -> ObsID -> StateIO ()
+modifyObs f i = modify (\s -> s & observer.all %~ (Map.adjust f i))
+
+modifyObsState :: ObsID -> ObsState -> StateIO ()
+modifyObsState i os = modifyObs (writeObsState os) i
 

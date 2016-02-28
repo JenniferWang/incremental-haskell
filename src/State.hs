@@ -7,6 +7,9 @@ import Data.IORef
 import Data.Set (Set)
 import Data.Maybe(isNothing, fromJust)
 import qualified Data.Set as Set
+import qualified Data.Map as Map
+import Data.Unique
+import Prelude hiding (all)
 
 import Types
 import Utils
@@ -172,6 +175,59 @@ addToRecomputeHeap :: PackedNode -> StateIO ()
 addToRecomputeHeap pn = do
   init_h <- N.getHeightP pn
   modify (\s -> s & recHeap %~ (RH.add (init_h, pn)))
+
+---------------------------------- Observers ----------------------------------
+unlinkDisallowedObs :: StateIO ()
+unlinkDisallowedObs = do
+  env <- get
+  mapM_ unlink0 $ env^.observer.disallowed
+  modify (\s -> s & observer.disallowed .~ [])
+    where unlink0 id = do
+            (PackedObs o) <- O.getObsByID id
+            -- TODO: change to 'assert'
+            when (_state o /= Disallowed) $
+                 error "State.unlinkDisallowedObs assertion failed"
+            O.modifyObsState id Unlinked
+            O.unlink o
+            checkIfUnnecessary (o^.observing)
+
+disallowFutureUse :: Observer a -> StateIO ()
+disallowFutureUse (Obs i s n)
+  | s == Created = do
+      modify (\s -> s & observer.numActive %~ ((-) 1))
+      O.modifyObsState i Unlinked
+  | s == InUse  = do
+      modify (\s -> s & observer.numActive %~ ((-) 1))
+      modify (\s -> s & observer.disallowed %~ (i :))
+      O.modifyObsState i Disallowed
+  | otherwise = return ()
+
+createObserver :: Eq a => NodeRef a -> StateIO (Observer a)
+createObserver nf = do
+  i   <- lift newUnique
+  let obs = Obs i Created nf
+  modify (\s -> s & observer.numActive %~ (+ 1))
+  modify (\s -> s & observer.new %~ (PackedObs obs :))
+  return obs
+
+addNewObservers :: StateIO ()
+addNewObservers = do
+  env <- get
+  mapM_ add0 $ env^.observer.new
+  modify (\s -> s & observer.new .~ [])
+    where
+    add0 (PackedObs o) = case (_state o) of
+      InUse      -> error "State.addNewObservers observer is in use"
+      Disallowed -> error "State.addNewObservers observer is disallowed"
+      Unlinked   -> return ()
+      Created    -> do
+        let newobs         = PackedObs (o{_state = InUse})
+            obs_id         = o^. obsID
+            nf@(Ref ref _) = o^. observing
+        was_necessary <- (readIORefT ref) >>= return . N.isNecessary
+        modify (\s -> s & observer.all %~ (Map.insert obs_id newobs))
+        modifyIORefT ref (\n -> n & obsOnNode %~ (Set.insert obs_id))
+        when (not was_necessary) $ becameNecessary nf
 
 ---------------------------------- Helper -------------------------------------
 valueExn :: Eq a => NodeRef a -> StateIO a

@@ -3,6 +3,8 @@ module Incremental (
     hello
   ) where
 
+import Types
+
 import qualified Node as N
 import qualified Var as V
 import qualified Recompute_Heap as RH

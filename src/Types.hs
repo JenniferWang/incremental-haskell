@@ -142,7 +142,7 @@ initRecHeap = undefined
 
 ---------------------------------- Observers ----------------------------------
 data ObsState = Created | InUse | Disallowed | Unlinked
-  deriving Show
+  deriving (Show, Eq)
 
 type ObsID = Unique
 
@@ -212,13 +212,12 @@ initStatusInfo = StatusInfo initStatus initStbNum initDebugInfo
 data ObserverInfo = ObserverInfo {
      _numActive  :: Int
    , _all        :: Map ObsID PackedObs
-   , _finalized  :: [ObsID]
-   , _new        :: [ObsID]
+   , _new        :: [PackedObs]
    , _disallowed :: [ObsID]
    }
 
 initObserverInfo :: ObserverInfo
-initObserverInfo = ObserverInfo 0 Map.empty [] [] []
+initObserverInfo = ObserverInfo 0 Map.empty [] []
 
 type StabilizationNum = Int
 initStbNum :: StabilizationNum

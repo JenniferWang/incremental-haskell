@@ -1,3 +1,7 @@
+## How to add finalizer to observers?
+Currently, all the observer instances are stored in map `State.observer.all` and the correspoinding `Node` keeps a set of `ObsID`, which serves as a key in the map. 
+This implementation is less efficient than the original doubly linked list design and doesn't support finalizer. [link](https://github.com/janestreet/incremental/blob/master/src/incremental_intf.ml#L856)
+
 ## Right now we don't support `onUpdateHandler`
 
 ## State transformer `StateIO`
