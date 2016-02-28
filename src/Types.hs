@@ -6,11 +6,16 @@ module Types
 
 import Data.IORef
 import Data.Unique
-import Data.Set (Set, empty)
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
+import Data.Set (Set)
+import qualified Data.Set as Set
 import Data.Heap (Heap,Entry(..))
 import Control.Monad.Trans.State.Strict hiding (State)
+import Prelude hiding (all)
 
 import Lens.Simple
+
 type Index = Int
 type Height = Int
 
@@ -55,7 +60,7 @@ initKind = Uninitialized
 data NodeRef a = Ref (IORef (Node a)) !Unique
 
 instance Show (NodeRef a) where
-  show (Ref _ index) = show $ hashUnique index
+  show (Ref _ index) = "[NodeRef ID = " ++ (show $ hashUnique index) ++ " ]"
 
 instance Eq (NodeRef a) where
   (==) (Ref _ i1) (Ref _ i2) = i1 == i2
@@ -73,12 +78,11 @@ data Node a = Node {
     _node     :: NodeInfo a
   , _parents  :: Set PackedNode
   , _height   :: Height      -- ^ used to visit nodes in topological order
-  , _handlers :: HandlersInfo a
-  , _obsHead  :: Maybe DummyType -- the head of the doubly-linked list of observers
+  , _obsOnNode :: Set ObsID -- ^ set of observer ID
   }
 
 initNode :: Node a
-initNode = Node initNodeInfo empty initHeight initHandlersInfo Nothing
+initNode = Node initNodeInfo Set.empty initHeight  Set.empty
 
 -- | 'ValueInfo'
 -- [_v]
@@ -108,15 +112,6 @@ data NodeInfo a = NodeInfo {
 initNodeInfo :: NodeInfo a
 initNodeInfo = NodeInfo initKind initValueInfo 0
 
-data HandlersInfo a = HandlersInfo {
-    _numOnUpdates       :: Int
-  , _isInHandleAfterStb :: Bool
-  , _onUpdates          :: [DummyType2 a]
-  }
-
-initHandlersInfo :: HandlersInfo a
-initHandlersInfo = HandlersInfo 0 False []
-
 data PackedNode = forall a. Eq a => PackedNode (NodeRef a)
 
 instance Eq PackedNode where
@@ -126,7 +121,7 @@ instance Ord PackedNode where
   (<=) (PackedNode ref1) (PackedNode ref2) = (getID ref1) <= (getID ref2)
 
 instance Show PackedNode where
-  show (PackedNode ref) = show ref
+  show (PackedNode ref) = "[PackedNode] =>" ++ show ref
 ---------------------------------- Var ----------------------------------------
 data Var a = Var {
     mvalue            :: !a
@@ -146,9 +141,42 @@ initRecHeap :: RecomputeHeap
 initRecHeap = undefined
 
 ---------------------------------- Observers ----------------------------------
+data ObsState = Created | InUse | Disallowed | Unlinked
+  deriving Show
+
+type ObsID = Unique
+
+data Observer a = Obs {
+    _obsID            :: !Unique
+  , _state            :: !ObsState
+  , _observing        :: !(NodeRef a)
+  }
+
+instance Show (Observer a) where
+  show o = "[Observer ID = " ++ show (hashUnique $ _obsID o)
+            ++ " , state = " ++ (show $ _state o) ++ "]"
+
+instance Eq (Observer a) where
+  (==) o1 o2 = (_obsID o1) == (_obsID o2)
+
+instance Ord (Observer a) where
+  (<=) o1 o2 = (_obsID o1) <= (_obsID o2)
+
+data PackedObs = forall a. Eq a => PackedObs (Observer a)
+
+getObsID :: PackedObs -> Unique
+getObsID (PackedObs o) = _obsID o
+
+instance Show PackedObs where
+  show (PackedObs o) = "[PackedObs] =>" ++ show o
+
+instance Eq PackedObs where
+  (==) po1 po2 = (getObsID po1) == (getObsID po2)
+
+instance Ord PackedObs where
+  (<=) po1 po2 = (getObsID po1) <= (getObsID po2)
 
 data DummyType = DummyType
-
 data DummyType2 a = DummyType2
 
 ---------------------------------- State --------------------------------------
@@ -157,15 +185,13 @@ type StateIO a = StateT StateInfo IO a
 data StateInfo = StateInfo {
     _info           :: StatusInfo
   , _recHeap        :: RecomputeHeap
-  , _handleAfterStb :: [PackedNode]
   , _observer       :: ObserverInfo
   }
 
 initState :: StateInfo
-initState = StateInfo initStatusInfo initRecHeap [] initObserverInfo
+initState = StateInfo initStatusInfo initRecHeap initObserverInfo
 
 data Status = Stabilizing
-            | RunningOnUpdateHandlers
             | NotStabilizing
             | StabilizePreviouslyRaised
 
@@ -181,17 +207,18 @@ data StatusInfo = StatusInfo {
 initStatusInfo :: StatusInfo
 initStatusInfo = StatusInfo initStatus initStbNum initDebugInfo
 
--- | 'ObsInfo' stands for observer information
+-- | The actual information of observers are stored in [_all]
+-- In either [Node._obsOnNode] ore here, we store the [ObsID]
 data ObserverInfo = ObserverInfo {
      _numActive  :: Int
-   , _all        :: [DummyType]
-   , _finalized  :: [DummyType]
-   , _new        :: [DummyType]
-   , _disallowed :: [DummyType]
+   , _all        :: Map ObsID PackedObs
+   , _finalized  :: [ObsID]
+   , _new        :: [ObsID]
+   , _disallowed :: [ObsID]
    }
 
 initObserverInfo :: ObserverInfo
-initObserverInfo = ObserverInfo 0 [] [] [] []
+initObserverInfo = ObserverInfo 0 Map.empty [] [] []
 
 type StabilizationNum = Int
 initStbNum :: StabilizationNum
@@ -235,5 +262,5 @@ makeLenses ''NodeInfo
 makeLenses ''ValueInfo
 makeLenses ''RecomputedInfo
 makeLenses ''BecameInfo
-makeLenses ''HandlersInfo
 makeLenses ''DebugInfo
+makeLenses ''Observer

@@ -12,6 +12,7 @@ import Types
 import Utils
 import qualified Node as N
 import qualified Recompute_Heap as RH
+import qualified Observer as O
 
 newNode :: Eq a => StateIO (NodeRef a)
 newNode = lift N.newNode
@@ -26,7 +27,6 @@ amStabilizing = do
     NotStabilizing            -> return False
     StabilizePreviouslyRaised -> return False
     Stabilizing               -> return True
-    RunningOnUpdateHandlers   -> return True
 
 removeChildren :: Eq a => NodeRef a -> StateIO ()
 removeChildren par_ref = do
@@ -44,23 +44,11 @@ checkIfUnnecessary nf@(Ref ref _) = do
 
 becameUnnecessary :: Eq a => NodeRef a -> StateIO ()
 becameUnnecessary nf@(Ref ref _)= do
-  n <- readIORefT ref
   modify (\s -> s & info.debug.nodesBecame.unnecessary %~ (+ 1))
-  when (n^.handlers.numOnUpdates > 0) (handleAfterStabilization nf)
   modifyIORefT ref (\n0 -> n0 & height .~ (-1))
   removeChildren nf
   -- TODO: kind = Unordered_array_fold / UnorderedArrayFold
   removeFromRecHeap (pack nf)
-
--- TODO: what does this function do?
-handleAfterStabilization :: Eq a => NodeRef a -> StateIO ()
-handleAfterStabilization nf@(Ref ref _) = do
-  n <- readIORefT ref
-  if n^.handlers.isInHandleAfterStb
-     then return ()
-     else do modifyIORefT ref (\n0 -> n0 & handlers.isInHandleAfterStb .~ True)
-             modify (\s -> s & handleAfterStb %~ (pack nf :))
-
 
 -- | invalidate a valid node
 -- https://github.com/janestreet/incremental/blob/master/src/state.ml#L357
@@ -73,9 +61,9 @@ invalidateNode _ pn@(PackedNode ref) = do
      else do
        when verbose (lift $ putStrLn "adding invalid node, invalidating parents")
        -- update node information
-       setNodeValue ref Nothing
-       updateChangedAt ref
-       updateRecomputedAt ref
+       N.setNodeValue ref Nothing
+       N.updateChangedAt ref
+       N.updateRecomputedAt ref
        -- invalid node doesn't have children any more
        removeChildren ref
        -- TODO: update height
@@ -92,12 +80,12 @@ propagateInvalidity ref = dfsParentWithoutRepeat ref invalidateNode
 adjustHeight :: Maybe PackedNode -> PackedNode -> StateIO Bool
 adjustHeight Nothing _ = return True
 adjustHeight (Just cpn) ppn@(PackedNode pref) = do
-  ch <- getHeightP cpn
-  ph <- getHeightP ppn
+  ch <- N.getHeightP cpn
+  ph <- N.getHeightP ppn
   if (ch < ph)
      then return False
      else do
-       setHeight pref (ch + 1)
+       N.setHeight pref (ch + 1)
        return True
        -- TODO: update height in recompute heap
        -- TODO: add cap for maximum height
@@ -116,11 +104,9 @@ addParent child_ref par_ref = do
   -- TODO: when parent is not in recompute heap, and ... add parent to recompute heap
 
 becameNecessary :: Eq a => NodeRef a -> StateIO ()
-becameNecessary nf@(Ref start _) = do
-  n <- readIORefT start
+becameNecessary (Ref start _) = do
   -- TODO: add fail conditions
   modify (\s -> s & info.debug.nodesBecame.necessary %~ (+ 1))
-  when (n^.handlers.numOnUpdates > 0) (handleAfterStabilization nf)
   -- TODO: when stale, add to recompute heap
 
 removeFromRecHeap :: PackedNode -> StateIO ()
@@ -139,7 +125,7 @@ changeChild parent old_child new_child = do
 recompute :: Eq a => NodeRef a -> StateIO ()
 recompute curr = do
   modify (\s -> s & info.debug.nodesRecomputed.byDefault %~ (+ 1))
-  updateRecomputedAt curr
+  N.updateRecomputedAt curr
   n0 <- readIORefT (getRef curr)
   case n0^.node.kind of
     Const x                -> maybeChangeValue curr x
@@ -148,7 +134,7 @@ recompute curr = do
       when (f cv) $ do removeChildren curr
                        lift $ N.setKind curr (Const cv)
                        if (N.isNecessary n0)
-                          then setHeight curr 0
+                          then N.setHeight curr 0
                           else becameUnnecessary curr
       maybeChangeValue curr cv
     Invalid                -> error "Invalid node should not be in the recompute heap"
@@ -159,14 +145,12 @@ recompute curr = do
     where maybeChangeValue :: Eq a => NodeRef a -> a -> StateIO ()
           maybeChangeValue ref new_v = do
             -- TODO: Cutoff.should_cutoff
-            old_v <- getNodeValue ref
+            old_v <- N.getNodeValue ref
             when (isNothing old_v || not (new_v == fromJust old_v)) $ do
-              setNodeValue ref (Just new_v)
-              updateChangedAt ref
+              N.setNodeValue ref (Just new_v)
+              N.updateChangedAt ref
               modify (\s -> s & info.debug.nodesChanged %~ (+ 1))
               n <- readIORefT (getRef ref)
-              when (n^.handlers.numOnUpdates > 0)
-                   (modifyIORefT (getRef ref) (\x -> x & node.value.oldValue .~ old_v))
               -- TODO: .....
               sequence_ $ N.iteriParents n (\_ pn -> addToRecomputeHeap pn)
 
@@ -184,46 +168,15 @@ recomputeEverythingThatIsNecessary = do
              recomputeP min_node
              recomputeEverythingThatIsNecessary
 
---------------------------------- Node Related Helper --------------------------
-setNodeValue :: Eq a => NodeRef a -> Maybe a -> StateIO ()
-setNodeValue (Ref ref _) v0 = modifyIORefT ref
-                                (\n -> n & node.value.v .~ v0)
-
-getNodeValue :: Eq a => NodeRef a -> StateIO (Maybe a)
-getNodeValue (Ref ref _) = readIORefT ref >>= \n -> return (n^.node.value.v)
-
-updateChangedAt :: Eq a => NodeRef a -> StateIO ()
-updateChangedAt (Ref ref _) = do
-  env <- get
-  modifyIORefT ref (\n -> n & node.value.changedAt .~ (env^.info.stbNum))
-
-updateRecomputedAt :: Eq a => NodeRef a -> StateIO ()
-updateRecomputedAt (Ref ref _) = do
-  env <- get
-  modifyIORefT ref (\n -> n & node.value.recomputedAt .~ (env^.info.stbNum))
-
-getHeight :: Eq a => NodeRef a -> StateIO Height
-getHeight (Ref ref _) = readIORefT ref >>= \n -> return (n^.height)
-
-getHeightP :: PackedNode -> StateIO Height
-getHeightP (PackedNode noderef) = getHeight noderef
-
-setHeight :: Eq a => NodeRef a -> Height -> StateIO ()
-setHeight (Ref ref _) h = modifyIORefT ref (\n -> n & height .~ h)
-
 addToRecomputeHeap :: PackedNode -> StateIO ()
 addToRecomputeHeap pn = do
-  init_h <- getHeightP pn
+  init_h <- N.getHeightP pn
   modify (\s -> s & recHeap %~ (RH.add (init_h, pn)))
----------------------------------- Helper --------------------------------------
+
+---------------------------------- Helper -------------------------------------
 valueExn :: Eq a => NodeRef a -> StateIO a
 valueExn (Ref ref _) = readIORefT ref >>= (return . N.valueExn)
 
-readIORefT :: (IORef a) -> StateIO a
-readIORefT = (lift . readIORef)
-
-modifyIORefT :: (IORef a) -> (a -> a) -> StateIO ()
-modifyIORefT ref g = lift $ modifyIORef ref g
 
 -- | DFS parent nodes with a function 'check'. If 'check' returns True, then
 -- continue searching for parent; otherwise, return
@@ -289,7 +242,7 @@ testCreateGraph = do
 
 testPrintNodeInfo :: Maybe PackedNode -> PackedNode -> StateIO Bool
 testPrintNodeInfo _ pn = do
-  h <- getHeightP pn
+  h <- N.getHeightP pn
   (lift . putStrLn) $ "Reach node id = " ++ show pn ++ " with height = " ++ show h
   return True
 
@@ -301,3 +254,4 @@ testDfsParent = do
 
 runTest :: StateIO a -> IO ()
 runTest action = runStateT action initState >> return ()
+

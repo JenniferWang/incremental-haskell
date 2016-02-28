@@ -1,3 +1,5 @@
+## Right now we don't support `onUpdateHandler`
+
 ## State transformer `StateIO`
 ```
 type StateIO a = StateT StateInfo IO a

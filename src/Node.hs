@@ -1,6 +1,8 @@
 module Node where
 
 import Data.IORef
+import Control.Monad.Trans.State.Strict
+import Control.Monad.Trans.Class
 import Data.Unique
 import Prelude hiding (id)
 import Data.Maybe(fromJust, isJust, isNothing)
@@ -89,7 +91,7 @@ removeParent (Ref cref _) parent = do
 
 isNecessary :: (Eq a) => Node a -> Bool
 isNecessary n = (n^.node.numPar) > 0
-             || isJust (n^.obsHead)
+             || (not $ Set.null (n^.obsOnNode))
              || K.isFreeze (n^.node.kind)
 
 
@@ -99,6 +101,37 @@ valueExn n
   | isNothing val = error "attempt to get value of an invalid node"
   | otherwise     = fromJust val
     where val = n^.node.value.v
+
+------------------------------ StateIO Monad -------------------------------
+setNodeValue :: Eq a => NodeRef a -> Maybe a -> StateIO ()
+setNodeValue (Ref ref _) v0 = modifyIORefT ref
+                                (\n -> n & node.value.v .~ v0)
+
+getNodeValue :: Eq a => NodeRef a -> StateIO (Maybe a)
+getNodeValue (Ref ref _) = readIORefT ref >>= \n -> return (n^.node.value.v)
+
+updateChangedAt :: Eq a => NodeRef a -> StateIO ()
+updateChangedAt (Ref ref _) = do
+  env <- get
+  modifyIORefT ref (\n -> n & node.value.changedAt .~ (env^.info.stbNum))
+
+updateRecomputedAt :: Eq a => NodeRef a -> StateIO ()
+updateRecomputedAt (Ref ref _) = do
+  env <- get
+  modifyIORefT ref (\n -> n & node.value.recomputedAt .~ (env^.info.stbNum))
+
+getHeight :: Eq a => NodeRef a -> StateIO Height
+getHeight (Ref ref _) = readIORefT ref >>= \n -> return (n^.height)
+
+getHeightP :: PackedNode -> StateIO Height
+getHeightP (PackedNode noderef) = getHeight noderef
+
+setHeight :: Eq a => NodeRef a -> Height -> StateIO ()
+setHeight (Ref ref _) h = modifyIORefT ref (\n -> n & height .~ h)
+
+removeObs :: Eq a => NodeRef a -> ObsID -> StateIO ()
+removeObs (Ref ref _) i = do
+  modifyIORefT ref (\n -> n & obsOnNode %~ (Set.delete i))
 
 test :: IO ()
 test = do
