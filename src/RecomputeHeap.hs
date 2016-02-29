@@ -1,4 +1,4 @@
-module Recompute_Heap where
+module RecomputeHeap where
 
 import Types
 
@@ -17,12 +17,21 @@ import Lens.Simple
 -- https://github.com/janestreet/incremental/blob/master/src/recompute_heap.mli
 
 
+-- | creates an empty recomputeHeap
+empty :: RecomputeHeap
+empty = H.empty
+
+
 -- | length of the heap
 length :: RecomputeHeap -> Int
 length = H.size
 
 isEmpty :: RecomputeHeap -> Bool
-isEmpty r = (Recompute_Heap.length r) == 0
+isEmpty r = (RecomputeHeap.length r) == 0
+
+-- | tests whether a PackedNod is in the recHeap
+isInRecHeap :: PackedNode -> RecomputeHeap -> Bool
+isInRecHeap (PackedNode ref) recHeap = 
 
 -- | add a node to heap
 add :: (Height, PackedNode) -> RecomputeHeap -> RecomputeHeap

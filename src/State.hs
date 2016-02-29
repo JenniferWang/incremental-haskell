@@ -14,7 +14,7 @@ import Prelude hiding (all)
 import Types
 import Utils
 import qualified Node as N
-import qualified Recompute_Heap as RH
+import qualified RecomputeHeap as RH
 import qualified Observer as O
 import qualified Var      as V
 
