@@ -43,7 +43,10 @@ data Kind a =
   | Invalid
   | forall b. Eq b => Map (b -> a) (NodeRef b)
   | Uninitialized
-  | Variable (Var a)
+  | Variable { mvalue            :: a --TODO: not sure if we need to keep this
+             , valueSetDuringStb :: !(Maybe a)
+             , setAt             :: StabilizationNum
+             }
 
 instance Show (Kind a) where
   show (Const _)      = "Const"
@@ -51,7 +54,7 @@ instance Show (Kind a) where
   show Invalid        = "Invalid"
   show (Map _ _)      = "Map"
   show Uninitialized  = "Uninitialized"
-  show (Variable _)   = "Var"
+  show (Variable _ _ _)   = "Var"
 
 initKind :: Kind a
 initKind = Uninitialized
@@ -122,13 +125,12 @@ instance Ord PackedNode where
 
 instance Show PackedNode where
   show (PackedNode ref) = "[PackedNode] =>" ++ show ref
+
 ---------------------------------- Var ----------------------------------------
-data Var a = Var {
-    mvalue            :: !a
-  , valueSetDuringStb :: !(Maybe a)
-  , setAt             :: StabilizationNum
-  , watch             :: NodeRef a
-  }
+-- Var class is a little bit different than in the JS library
+-- Now, it is just a proxy and the information is stored directly in the node
+
+newtype Var a = Var { watch :: NodeRef a}
 
 ---------------------------------- Scope --------------------------------------
 data Scope = Scope

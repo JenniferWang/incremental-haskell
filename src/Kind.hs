@@ -10,7 +10,7 @@ maxNumChildren (Freeze _ _ _) = 1
 maxNumChildren Invalid        = 0
 maxNumChildren (Map _ _)      = 1
 maxNumChildren Uninitialized  = 0
-maxNumChildren (Variable _)   = 0
+maxNumChildren (Variable _ _ _)   = 0
 
 
 -- TODO: add error message

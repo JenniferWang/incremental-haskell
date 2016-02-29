@@ -16,8 +16,8 @@ import Types
 import Utils
 
 ---------------------------------- Node ---------------------------------------
-newNode :: (Eq a) => IO (NodeRef a)
-newNode = do
+createNode :: (Eq a) => IO (NodeRef a)
+createNode = do
   i <- newUnique
   ref  <- newIORef initNode
   return (Ref ref i)
@@ -135,9 +135,9 @@ removeObs (Ref ref _) i = do
 
 test :: IO ()
 test = do
-  ref1 <- newNode :: IO (NodeRef Int)
-  ref2 <- newNode :: IO (NodeRef Int)
-  ref3 <- newNode :: IO (NodeRef Int)
+  ref1 <- createNode :: IO (NodeRef Int)
+  ref2 <- createNode :: IO (NodeRef Int)
+  ref3 <- createNode :: IO (NodeRef Int)
   addParent ref2 ref3
   addParent ref2 ref1
   return ()

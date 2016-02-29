@@ -17,8 +17,8 @@ import qualified Node as N
 import qualified Recompute_Heap as RH
 import qualified Observer as O
 
-newNode :: Eq a => StateIO (NodeRef a)
-newNode = lift N.newNode
+createNode :: Eq a => StateIO (NodeRef a)
+createNode = lift N.createNode
 
 getStbNum:: StateIO Int
 getStbNum = do s <- get; return $ s^.info.stbNum
@@ -107,10 +107,11 @@ addParent child_ref par_ref = do
   -- TODO: when parent is not in recompute heap, and ... add parent to recompute heap
 
 becameNecessary :: Eq a => NodeRef a -> StateIO ()
-becameNecessary (Ref start _) = do
+becameNecessary (Ref _ _) = do
   -- TODO: add fail conditions
   modify (\s -> s & info.debug.nodesBecame.necessary %~ (+ 1))
   -- TODO: when stale, add to recompute heap
+  -- TODO: https://github.com/janestreet/incremental/blob/master/src/state.ml#L476
 
 removeFromRecHeap :: PackedNode -> StateIO ()
 removeFromRecHeap pn = modify (\s -> s & recHeap %~ (RH.remove pn))
@@ -143,7 +144,7 @@ recompute curr = do
     Invalid                -> error "Invalid node should not be in the recompute heap"
     Map f cref             -> (valueExn cref) >>= \cv -> maybeChangeValue curr (f cv)
     Uninitialized          -> error "Current node is uninitialized"
-    Variable (Var v _ _ _) -> maybeChangeValue curr v
+    Variable v0 _ _        -> maybeChangeValue curr v0
 
     where maybeChangeValue :: Eq a => NodeRef a -> a -> StateIO ()
           maybeChangeValue ref new_v = do
@@ -182,24 +183,24 @@ unlinkDisallowedObs = do
   env <- get
   mapM_ unlink0 $ env^.observer.disallowed
   modify (\s -> s & observer.disallowed .~ [])
-    where unlink0 id = do
-            (PackedObs o) <- O.getObsByID id
+    where unlink0 i = do
+            (PackedObs o) <- O.getObsByID i
             -- TODO: change to 'assert'
             when (_state o /= Disallowed) $
                  error "State.unlinkDisallowedObs assertion failed"
-            O.modifyObsState id Unlinked
+            O.modifyObsState i Unlinked
             O.unlink o
             checkIfUnnecessary (o^.observing)
 
 disallowFutureUse :: Observer a -> StateIO ()
-disallowFutureUse (Obs i s n)
-  | s == Created = do
-      modify (\s -> s & observer.numActive %~ ((-) 1))
-      O.modifyObsState i Unlinked
-  | s == InUse  = do
-      modify (\s -> s & observer.numActive %~ ((-) 1))
-      modify (\s -> s & observer.disallowed %~ (i :))
-      O.modifyObsState i Disallowed
+disallowFutureUse (Obs i s0 _)
+  | s0 == Created = do
+       modify (\s -> s & observer.numActive %~ ((-) 1))
+       O.modifyObsState i Unlinked
+  | s0 == InUse  = do
+       modify (\s -> s & observer.numActive %~ ((-) 1))
+       modify (\s -> s & observer.disallowed %~ (i :))
+       O.modifyObsState i Disallowed
   | otherwise = return ()
 
 createObserver :: Eq a => NodeRef a -> StateIO (Observer a)
@@ -226,8 +227,31 @@ addNewObservers = do
             nf@(Ref ref _) = o^. observing
         was_necessary <- (readIORefT ref) >>= return . N.isNecessary
         modify (\s -> s & observer.all %~ (Map.insert obs_id newobs))
-        modifyIORefT ref (\n -> n & obsOnNode %~ (Set.insert obs_id))
+        modifyIORefT ref (\n  -> n & obsOnNode %~ (Set.insert obs_id))
         when (not was_necessary) $ becameNecessary nf
+
+---------------------------------- Var ----------------------------------
+createVar :: Eq a => a -> StateIO (Var a)
+createVar v0 = do
+  --TODO scope
+  watched <- createNode
+  stbnum  <- getStbNum
+  let var = Variable v0 Nothing stbnum
+  lift $ N.setKind watched var
+  return (Var watched)
+
+setVarWhileNotStabilizing :: Eq a => Var a -> a -> StateIO ()
+setVarWhileNotStabilizing (Var (Ref ref _)) new_v = do
+  modify (\s -> s & info.debug.varSets %~ (+ 1))
+  watched <- readIORefT ref
+  stbnum  <- getStbNum
+  let old_k = watched^.node.kind
+      new_k = old_k{mvalue = new_v}
+  if (setAt old_k < stbnum)
+     then do modifyIORefT ref (\n -> n & node.kind .~ new_k{setAt = stbnum})
+             -- when (N.isNecessary watched && not_in_rec_heap) (add to heap)
+     else modifyIORefT ref (\n -> n & node.kind .~ new_k)
+
 
 ---------------------------------- Helper -------------------------------------
 valueExn :: Eq a => NodeRef a -> StateIO a
@@ -286,10 +310,10 @@ verbose = True
 -- | Create a graph for testing
 testCreateGraph :: StateIO [PackedNode]
 testCreateGraph = do
-  n1 <- newNode :: StateIO (NodeRef Int)
-  n2 <- newNode :: StateIO (NodeRef Int)
-  n3 <- newNode :: StateIO (NodeRef Int)
-  n4 <- newNode :: StateIO (NodeRef Int)
+  n1 <- createNode :: StateIO (NodeRef Int)
+  n2 <- createNode :: StateIO (NodeRef Int)
+  n3 <- createNode :: StateIO (NodeRef Int)
+  n4 <- createNode :: StateIO (NodeRef Int)
   addParent n1 n2
   addParent n1 n3
   addParent n2 n4
