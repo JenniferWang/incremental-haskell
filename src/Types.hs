@@ -131,6 +131,7 @@ instance Show PackedNode where
 -- Now, it is just a proxy and the information is stored directly in the node
 
 newtype Var a = Var { watch :: NodeRef a}
+data PackedVar = forall a. Eq a => PackVar !(Var a)
 
 ---------------------------------- Scope --------------------------------------
 data Scope = Scope
@@ -164,13 +165,13 @@ instance Eq (Observer a) where
 instance Ord (Observer a) where
   (<=) o1 o2 = (_obsID o1) <= (_obsID o2)
 
-data PackedObs = forall a. Eq a => PackedObs (Observer a)
+data PackedObs = forall a. Eq a => PackObs (Observer a)
 
 getObsID :: PackedObs -> Unique
-getObsID (PackedObs o) = _obsID o
+getObsID (PackObs o) = _obsID o
 
 instance Show PackedObs where
-  show (PackedObs o) = "[PackedObs] =>" ++ show o
+  show (PackObs o) = "[PackedObs] =>" ++ show o
 
 instance Eq PackedObs where
   (==) po1 po2 = (getObsID po1) == (getObsID po2)
@@ -188,10 +189,11 @@ data StateInfo = StateInfo {
     _info           :: StatusInfo
   , _recHeap        :: RecomputeHeap
   , _observer       :: ObserverInfo
+  , _varSetDuringStb :: [PackedVar]
   }
 
 initState :: StateInfo
-initState = StateInfo initStatusInfo initRecHeap initObserverInfo
+initState = StateInfo initStatusInfo initRecHeap initObserverInfo []
 
 data Status = Stabilizing
             | NotStabilizing

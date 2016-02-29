@@ -16,6 +16,7 @@ import Utils
 import qualified Node as N
 import qualified Recompute_Heap as RH
 import qualified Observer as O
+import qualified Var      as V
 
 createNode :: Eq a => StateIO (NodeRef a)
 createNode = lift N.createNode
@@ -184,7 +185,7 @@ unlinkDisallowedObs = do
   mapM_ unlink0 $ env^.observer.disallowed
   modify (\s -> s & observer.disallowed .~ [])
     where unlink0 i = do
-            (PackedObs o) <- O.getObsByID i
+            (PackObs o) <- O.getObsByID i
             -- TODO: change to 'assert'
             when (_state o /= Disallowed) $
                  error "State.unlinkDisallowedObs assertion failed"
@@ -208,7 +209,7 @@ createObserver nf = do
   i   <- lift newUnique
   let obs = Obs i Created nf
   modify (\s -> s & observer.numActive %~ (+ 1))
-  modify (\s -> s & observer.new %~ (PackedObs obs :))
+  modify (\s -> s & observer.new %~ (PackObs obs :))
   return obs
 
 addNewObservers :: StateIO ()
@@ -217,12 +218,12 @@ addNewObservers = do
   mapM_ add0 $ env^.observer.new
   modify (\s -> s & observer.new .~ [])
     where
-    add0 (PackedObs o) = case (_state o) of
+    add0 (PackObs o) = case (_state o) of
       InUse      -> error "State.addNewObservers observer is in use"
       Disallowed -> error "State.addNewObservers observer is disallowed"
       Unlinked   -> return ()
       Created    -> do
-        let newobs         = PackedObs (o{_state = InUse})
+        let newobs         = PackObs (o{_state = InUse})
             obs_id         = o^. obsID
             nf@(Ref ref _) = o^. observing
         was_necessary <- (readIORefT ref) >>= return . N.isNecessary
@@ -252,6 +253,42 @@ setVarWhileNotStabilizing (Var (Ref ref _)) new_v = do
              -- when (N.isNecessary watched && not_in_rec_heap) (add to heap)
      else modifyIORefT ref (\n -> n & node.kind .~ new_k)
 
+setVar :: Eq a => Var a -> a -> StateIO ()
+setVar v0@(Var (Ref ref _)) new_v = do
+  s0 <- get
+  case (s0^.info.status) of
+    NotStabilizing            -> setVarWhileNotStabilizing v0 new_v
+    StabilizePreviouslyRaised ->
+      error "Cannot set var -- stabilization previously raised"
+    Stabilizing               -> do
+      watched <- readIORefT ref
+      let old_k = watched^.node.kind
+      when (isNothing $ valueSetDuringStb old_k)
+           (modify (\s -> s & varSetDuringStb %~ (PackVar v0 :)))
+      modifyIORefT ref (\n -> n & node.kind .~ old_k{valueSetDuringStb = Just new_v})
+
+---------------------------------- Stabilization ------------------------------
+stabilize :: StateIO ()
+stabilize = do
+  s0 <- get
+  modify (\s -> s & info.status .~ Stabilizing)
+  -- disallow finailized observers
+  addNewObservers
+  -- unlink disallowed observers
+  recomputeEverythingThatIsNecessary
+  modify (\s -> s & info.stbNum %~ (+ 1))
+  mapM_ go (s0^.varSetDuringStb)
+  modify (\s -> s & varSetDuringStb .~ [])
+  -- handler
+  modify (\s -> s& info.status .~ NotStabilizing)
+  -- TODO: add try-catch execption control flow
+    where go (PackVar var) = do
+            watched <- readIORefT (getRef $ watch var)
+            let old_k = watched^.node.kind
+                v0    = fromJust $ valueSetDuringStb old_k
+            modifyIORefT (getRef $ watch var)
+                         (\n -> n & node.kind .~ old_k{valueSetDuringStb = Nothing})
+            setVarWhileNotStabilizing var v0
 
 ---------------------------------- Helper -------------------------------------
 valueExn :: Eq a => NodeRef a -> StateIO a
@@ -331,6 +368,21 @@ testDfsParent :: StateIO ()
 testDfsParent = do
   nodes <- testCreateGraph
   dfsParentWithoutRepeatP (nodes !! 0) testPrintNodeInfo
+
+testVar :: StateIO ()
+testVar = do
+  v1    <- createVar 5
+  curr1 <- V.getValue v1
+  (lift . putStrLn) $ "value for v1 is " ++ show curr1
+  setVar v1 7
+  curr10 <- V.getValue v1
+  curr11 <- V.getLatestValue v1
+  (lift . putStrLn) $ "value for v1 is " ++ show curr10
+  (lift . putStrLn) $ "latest value for v1 is " ++ show curr11
+  stabilize
+  curr12 <- V.getValue v1
+  (lift . putStrLn) $ "value for v1 is " ++ show curr12
+    -- hit exception because initial recompute heap is not defined
 
 runTest :: StateIO a -> IO ()
 runTest action = runStateT action initState >> return ()

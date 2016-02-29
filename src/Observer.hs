@@ -18,7 +18,7 @@ useIsAllowed o = case (_state o) of Created    -> True
                                     Unlinked   -> False
 
 writeObsState :: ObsState -> PackedObs -> PackedObs
-writeObsState new_state (PackedObs o) = PackedObs (o{_state = new_state})
+writeObsState new_state (PackObs o) = PackObs (o{_state = new_state})
 
 ------------------------------ StateIO Monad -------------------------------
 obsValueExn :: Eq a => Observer a -> StateIO a
@@ -41,7 +41,7 @@ unlink :: Eq a => Observer a -> StateIO ()
 unlink ob = unlinkFmObserving ob >> unlinkFmAll ob
 
 unlinkP :: PackedObs -> StateIO ()
-unlinkP (PackedObs ob) = unlink ob
+unlinkP (PackObs ob) = unlink ob
 
 getObsByID :: ObsID -> StateIO PackedObs
 getObsByID i = do
