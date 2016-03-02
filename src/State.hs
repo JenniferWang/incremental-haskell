@@ -49,7 +49,7 @@ checkIfUnnecessary nf@(Ref ref _) = do
 becameUnnecessary :: Eq a => NodeRef a -> StateIO ()
 becameUnnecessary nf@(Ref ref _)= do
   modify (\s -> s & info.debug.nodesBecame.unnecessary %~ (+ 1))
-  modifyIORefT ref (\n0 -> n0 & height .~ (-1))
+  modifyIORefT ref (\n0 -> n0 & temp.height .~ (-1))
   removeChildren nf
   -- TODO: kind = Unordered_array_fold / UnorderedArrayFold
   removeFromRecHeap (pack nf)
@@ -132,7 +132,7 @@ recompute curr = do
   modify (\s -> s & info.debug.nodesRecomputed.byDefault %~ (+ 1))
   N.updateRecomputedAt curr
   n0 <- readIORefT (getRef curr)
-  case n0^.node.kind of
+  case n0^.kind of
     Const x                -> maybeChangeValue curr x
     Freeze _ cref f        -> do
       cv <- valueExn cref
@@ -228,7 +228,7 @@ addNewObservers = do
             nf@(Ref ref _) = o^. observing
         was_necessary <- (readIORefT ref) >>= return . N.isNecessary
         modify (\s -> s & observer.all %~ (Map.insert obs_id newobs))
-        modifyIORefT ref (\n  -> n & obsOnNode %~ (Set.insert obs_id))
+        modifyIORefT ref (\n  -> n & edges.obsOnNode %~ (Set.insert obs_id))
         when (not was_necessary) $ becameNecessary nf
 
 ---------------------------------- Var ----------------------------------
@@ -246,12 +246,12 @@ setVarWhileNotStabilizing (Var (Ref ref _)) new_v = do
   modify (\s -> s & info.debug.varSets %~ (+ 1))
   watched <- readIORefT ref
   stbnum  <- getStbNum
-  let old_k = watched^.node.kind
+  let old_k = watched^.kind
       new_k = old_k{mvalue = new_v}
   if (setAt old_k < stbnum)
-     then do modifyIORefT ref (\n -> n & node.kind .~ new_k{setAt = stbnum})
+     then do modifyIORefT ref (\n -> n & kind .~ new_k{setAt = stbnum})
              -- when (N.isNecessary watched && not_in_rec_heap) (add to heap)
-     else modifyIORefT ref (\n -> n & node.kind .~ new_k)
+     else modifyIORefT ref (\n -> n & kind .~ new_k)
 
 setVar :: Eq a => Var a -> a -> StateIO ()
 setVar v0@(Var (Ref ref _)) new_v = do
@@ -262,10 +262,10 @@ setVar v0@(Var (Ref ref _)) new_v = do
       error "Cannot set var -- stabilization previously raised"
     Stabilizing               -> do
       watched <- readIORefT ref
-      let old_k = watched^.node.kind
+      let old_k = watched^.kind
       when (isNothing $ valueSetDuringStb old_k)
            (modify (\s -> s & varSetDuringStb %~ (PackVar v0 :)))
-      modifyIORefT ref (\n -> n & node.kind .~ old_k{valueSetDuringStb = Just new_v})
+      modifyIORefT ref (\n -> n & kind .~ old_k{valueSetDuringStb = Just new_v})
 
 ---------------------------------- Stabilization ------------------------------
 stabilize :: StateIO ()
@@ -284,10 +284,10 @@ stabilize = do
   -- TODO: add try-catch execption control flow
     where go (PackVar var) = do
             watched <- readIORefT (getRef $ watch var)
-            let old_k = watched^.node.kind
+            let old_k = watched^.kind
                 v0    = fromJust $ valueSetDuringStb old_k
             modifyIORefT (getRef $ watch var)
-                         (\n -> n & node.kind .~ old_k{valueSetDuringStb = Nothing})
+                         (\n -> n & kind .~ old_k{valueSetDuringStb = Nothing})
             setVarWhileNotStabilizing var v0
 
 ---------------------------------- Helper -------------------------------------

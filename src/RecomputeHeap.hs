@@ -5,9 +5,7 @@ import Types
 import Data.Heap (Heap,Entry(..))
 import Data.Maybe (fromJust)
 import qualified Data.Heap as H
-import Data.IORef
 
-import Lens.Simple
 
 -----------------------------  Recompute Heap --------------------
 -- Recompute heap holds the set of nodes that need to be computed.
@@ -28,10 +26,6 @@ length = H.size
 
 isEmpty :: RecomputeHeap -> Bool
 isEmpty r = (RecomputeHeap.length r) == 0
-
--- | tests whether a PackedNod is in the recHeap
-isInRecHeap :: PackedNode -> RecomputeHeap -> Bool
-isInRecHeap (PackedNode ref) recHeap = 
 
 -- | add a node to heap
 add :: (Height, PackedNode) -> RecomputeHeap -> RecomputeHeap

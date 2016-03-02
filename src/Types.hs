@@ -78,24 +78,31 @@ getRef :: NodeRef a -> IORef (Node a)
 getRef (Ref ref id) = ref
 
 data Node a = Node {
-    _node     :: NodeInfo a
-  , _parents  :: Set PackedNode
-  , _height   :: Height      -- ^ used to visit nodes in topological order
-  , _obsOnNode :: Set ObsID -- ^ set of observer ID
+    _kind  :: Kind a
+  , _value :: ValueInfo a
+  , _edges :: Edges
+  , _temp  :: Temp
   }
 
 initNode :: Node a
-initNode = Node initNodeInfo Set.empty initHeight  Set.empty
+initNode = Node initKind initValueInfo initEdges initTemp
 
--- | 'ValueInfo'
--- [_v]
---   starts as Nothing, the first time [Node a] is computed it is set to [some]
---   and remains [some] thereafter, until [Node a]  is invalidated, if ever.
--- [_recomputedAt]
---   the last stabilization when node val is computed
--- [_changedAt]
---    the last stabilization when this node was computed and not cut off. It is
---    used to detect the node's parents are stale and need to be recomputed
+data Edges = Edges {
+    _parents   :: Set PackedNode
+  , _obsOnNode :: Set ObsID
+  }
+
+initEdges :: Edges
+initEdges = Edges Set.empty Set.empty
+
+data Temp = Temp {
+    _isInRecHeap :: !Bool
+  , _height      :: !Height
+  }
+
+initTemp :: Temp
+initTemp = Temp False initHeight
+
 data ValueInfo a = ValueInfo {
     _v            :: Maybe a
   , _oldValue     :: Maybe a
@@ -105,15 +112,6 @@ data ValueInfo a = ValueInfo {
 
 initValueInfo :: ValueInfo a
 initValueInfo = ValueInfo Nothing Nothing initStbNum initStbNum
-
-data NodeInfo a = NodeInfo {
-    _kind   :: Kind a
-  , _value  :: ValueInfo a
-  , _numPar :: !Int
-  }
-
-initNodeInfo :: NodeInfo a
-initNodeInfo = NodeInfo initKind initValueInfo 0
 
 data PackedNode = forall a. Eq a => PackedNode (NodeRef a)
 
@@ -258,10 +256,11 @@ initRecomputedInfo :: RecomputedInfo
 initRecomputedInfo = RecomputedInfo 0 0 0
 
 makeLenses ''Node
+makeLenses ''Temp
+makeLenses ''Edges
 makeLenses ''StateInfo
 makeLenses ''StatusInfo
 makeLenses ''ObserverInfo
-makeLenses ''NodeInfo
 makeLenses ''ValueInfo
 makeLenses ''RecomputedInfo
 makeLenses ''BecameInfo
