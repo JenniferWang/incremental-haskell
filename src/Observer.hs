@@ -11,7 +11,7 @@ import Lens.Simple
 import Types
 import qualified Node as N
 
-useIsAllowed :: Observer a -> Bool
+useIsAllowed :: InterObserver a -> Bool
 useIsAllowed o = case (_state o) of Created    -> True
                                     InUse      -> True
                                     Disallowed -> False
@@ -21,7 +21,7 @@ writeObsState :: ObsState -> PackedObs -> PackedObs
 writeObsState new_state (PackObs o) = PackObs (o{_state = new_state})
 
 ------------------------------ StateIO Monad -------------------------------
-obsValueExn :: Eq a => Observer a -> StateIO a
+obsValueExn :: Eq a => InterObserver a -> StateIO a
 obsValueExn o = case (o^.state) of
                   -- TODO: change to failwith
                   Created -> error "State.obsValueExn called without stabilizing"
@@ -31,13 +31,13 @@ obsValueExn o = case (o^.state) of
                                    else return (fromJust v)
                   _       -> error "State.obsValueExn called after disallowing future use"
 
-unlinkFmObserving :: Eq a => Observer a -> StateIO ()
+unlinkFmObserving :: Eq a => InterObserver a -> StateIO ()
 unlinkFmObserving ob = N.removeObs (ob^.observing) (ob^.obsID)
 
-unlinkFmAll :: Eq a => Observer a -> StateIO ()
+unlinkFmAll :: Eq a => InterObserver a -> StateIO ()
 unlinkFmAll ob = modify (\s -> s & observer.all %~ (Map.delete $ ob^.obsID))
 
-unlink :: Eq a => Observer a -> StateIO ()
+unlink :: Eq a => InterObserver a -> StateIO ()
 unlink ob = unlinkFmObserving ob >> unlinkFmAll ob
 
 unlinkP :: PackedObs -> StateIO ()

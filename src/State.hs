@@ -203,8 +203,8 @@ unlinkDisallowedObs = do
             O.unlink o
             checkIfUnnecessary (o^.observing)
 
-disallowFutureUse :: Observer a -> StateIO ()
-disallowFutureUse (Obs i s0 _)
+disallowFutureUse :: InterObserver a -> StateIO ()
+disallowFutureUse (InterObs i s0 _)
   | s0 == Created = do
        modify (\s -> s & observer.numActive %~ ((-) 1))
        O.modifyObsState i Unlinked
@@ -214,10 +214,10 @@ disallowFutureUse (Obs i s0 _)
        O.modifyObsState i Disallowed
   | otherwise = return ()
 
-createObserver :: Eq a => NodeRef a -> StateIO (Observer a)
+createObserver :: Eq a => NodeRef a -> StateIO (InterObserver a)
 createObserver nf = do
   i   <- lift newUnique
-  let obs = Obs i Created nf
+  let obs = InterObs i Created nf
   modify (\s -> s & observer.numActive %~ (+ 1))
   modify (\s -> s & observer.new %~ (PackObs obs :))
   return obs

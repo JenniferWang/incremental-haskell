@@ -155,23 +155,23 @@ data ObsState = Created | InUse | Disallowed | Unlinked
 
 type ObsID = Unique
 
-data Observer a = Obs {
+data InterObserver a = InterObs {
     _obsID            :: !Unique
   , _state            :: !ObsState
   , _observing        :: !(NodeRef a)
   }
 
-instance Show (Observer a) where
+instance Show (InterObserver a) where
   show o = "[Observer ID = " ++ show (hashUnique $ _obsID o)
             ++ " , state = " ++ (show $ _state o) ++ "]"
 
-instance Eq (Observer a) where
+instance Eq (InterObserver a) where
   (==) o1 o2 = (_obsID o1) == (_obsID o2)
 
-instance Ord (Observer a) where
+instance Ord (InterObserver a) where
   (<=) o1 o2 = (_obsID o1) <= (_obsID o2)
 
-data PackedObs = forall a. Eq a => PackObs (Observer a)
+data PackedObs = forall a. Eq a => PackObs (InterObserver a)
 
 getObsID :: PackedObs -> Unique
 getObsID (PackObs o) = _obsID o
@@ -273,4 +273,4 @@ makeLenses ''ValueInfo
 makeLenses ''RecomputedInfo
 makeLenses ''BecameInfo
 makeLenses ''DebugInfo
-makeLenses ''Observer
+makeLenses ''InterObserver
