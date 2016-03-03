@@ -13,9 +13,9 @@ import Prelude hiding (all)
 
 import Types
 import Utils
-import qualified Node as N
+import qualified Node     as N
 import qualified Observer as O
-import qualified Var           as V
+import qualified Var      as V
 
 ---------------------------------- Node ----------------------------------
 createNode :: Eq a => Kind a -> StateIO (NodeRef a)
@@ -192,9 +192,6 @@ recomputeEverythingThatIsNecessary = do
 addToRecomputeHeap :: PackedNode -> StateIO ()
 addToRecomputeHeap pn = do
   modify (\s -> s & recHeap %~ (Set.insert pn))
-  -- TODO: delete
-  env <- get
-  putStrLnT $ "--* After addToRecomputeHeap, root is " ++ show (env^.recHeap)
 
 ---------------------------------- Observers ----------------------------------
 unlinkDisallowedObs :: StateIO ()
@@ -360,6 +357,13 @@ dfsParentWithRepeat start check = go Nothing (pack start) Set.empty
 verbose :: Bool
 verbose = True
 
+printObs :: (Show a, Eq a) => Observer a -> StateIO ()
+printObs obs = O.obsValueExn obs
+           >>= \x -> putStrLnT $ show obs ++ " = " ++ show x
+
+printVar :: (Show a, Eq a) => Var a -> StateIO ()
+printVar x = V.getValue x
+          >>= \y -> putStrLnT $ show x ++ " = " ++ show y
 -- | Create a graph for testing
 -- testCreateGraph :: StateIO [PackedNode]
 -- testCreateGraph = do
@@ -398,18 +402,13 @@ testVar = do
   putStrLnT "All nodes are added"
 
   stabilize
-  curr12 <- V.getValue v1
-  (lift . putStrLn) $ "value for v1 is " ++ show curr12
-  curr22 <- O.obsValueExn obs
-  (lift . putStrLn) $ "value for v2 is " ++ show curr22
+  printVar v1
+  printObs obs
 
   setVar v1 10
   stabilize
-  curr13 <- V.getValue v1
-  (lift . putStrLn) $ "value for v1 is " ++ show curr13
-  curr23 <- O.obsValueExn obs
-  (lift . putStrLn) $ "value for v2 is " ++ show curr23
-
+  printVar v1
+  printObs obs
 
 runTest :: StateIO a -> IO ()
 runTest action = runStateT action initState >> return ()

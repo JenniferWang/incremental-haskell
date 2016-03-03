@@ -146,6 +146,9 @@ instance Show PackedNode where
 -- Now, it is just a proxy and the information is stored directly in the node
 
 newtype Var a = Var { watch :: NodeRef a}
+instance Show (Var a) where
+  show v = "[Var] watching " ++ show (watch v)
+
 data PackedVar = forall a. Eq a => PackVar !(Var a)
 
 ---------------------------------- Scope --------------------------------------
@@ -156,6 +159,8 @@ data ObsState = Created | InUse | Disallowed | Unlinked
   deriving (Show, Eq)
 
 type ObsID = Unique
+instance Show Unique where
+  show u = show (hashUnique u)
 
 data InterObserver a = InterObs {
     _obsID            :: !Unique
@@ -164,7 +169,7 @@ data InterObserver a = InterObs {
   }
 
 instance Show (InterObserver a) where
-  show o = "[Observer ID = " ++ show (hashUnique $ _obsID o)
+  show o = "[Observer ID = " ++ show (_obsID o)
             ++ " , state = " ++ (show $ _state o) ++ "]"
 
 instance Eq (InterObserver a) where
@@ -188,6 +193,9 @@ instance Ord PackedObs where
   (<=) po1 po2 = (getObsID po1) <= (getObsID po2)
 
 newtype Observer a = Obs ObsID
+
+instance Show (Observer a) where
+  show (Obs id) = "[Observer ID = " ++ show id ++ "]"
 
 ---------------------------------- State --------------------------------------
 type StateIO a = StateT StateInfo IO a
