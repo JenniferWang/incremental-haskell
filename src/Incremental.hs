@@ -7,7 +7,6 @@ import Types
 
 import qualified Node as N
 import qualified Var as V
-import qualified RecomputeHeap as RH
 import qualified State as S
 
 hello :: IO ()

@@ -1,7 +1,6 @@
 module Var
   where
 
-import Data.IORef
 import Data.Maybe(fromJust, isNothing)
 
 import Lens.Simple

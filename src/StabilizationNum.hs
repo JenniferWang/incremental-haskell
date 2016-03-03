@@ -5,9 +5,6 @@ import Types
 newStbNum :: StabilizationNum
 newStbNum = 0
 
-none :: Int
-none = -1
-
 isNone :: StabilizationNum -> Bool
 isNone = (==) none
 

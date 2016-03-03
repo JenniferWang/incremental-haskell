@@ -60,6 +60,22 @@ initKind :: Kind a
 initKind = Uninitialized
 
 ---------------------------------- Node ---------------------------------------
+-- 'Node' is the basic element in the DAG. 'NodeRef' contains a reference to a node
+-- as well as a unique number to identify the node.
+-- At first glance, it is a little strange not to store the ID in the node itself. We
+-- do this because we want to make 'NodeRef a' and 'PackedNode' instance of 'Ord'
+-- without unsafe coercion.
+-- The node contains:
+--   kind  : kind of the node, contains the pointer to child node
+--   value : all value related information
+--   edges :
+--     parents : these are the real edge in the DAG. A [p] is added in the 'parents'
+--               field of the [c] node iff the [p] node is necessary and the [c] node
+--               is referred to by the [p] node in [p].kind
+--               parents are recursively added in 'State.becameNecessary'.
+--     obsOnNode : observers added to the current node
+--   [temp]  : contains the teamporary information needed during computation.
+
 data NodeRef a = Ref (IORef (Node a)) !Unique
 
 instance Show (NodeRef a) where
@@ -81,11 +97,11 @@ data Node a = Node {
     _kind  :: Kind a
   , _value :: ValueInfo a
   , _edges :: Edges
-  , _temp  :: Temp
+  -- , _temp  :: Temp
   }
 
 initNode :: Node a
-initNode = Node initKind initValueInfo initEdges initTemp
+initNode = Node initKind initValueInfo initEdges
 
 data Edges = Edges {
     _parents   :: Set PackedNode
@@ -95,13 +111,12 @@ data Edges = Edges {
 initEdges :: Edges
 initEdges = Edges Set.empty Set.empty
 
-data Temp = Temp {
-    _isInRecHeap :: !Bool
-  , _height      :: !Height
-  }
+-- data Temp = Temp {
+--     _isInRecHeap :: !Bool
+--   }
 
-initTemp :: Temp
-initTemp = Temp False initHeight
+-- initTemp :: Temp
+-- initTemp = Temp False
 
 data ValueInfo a = ValueInfo {
     _v            :: Maybe a
@@ -133,13 +148,6 @@ data PackedVar = forall a. Eq a => PackVar !(Var a)
 
 ---------------------------------- Scope --------------------------------------
 data Scope = Scope
-
----------------------------------- Heap ---------------------------------------
-type RecomputeHeap = Heap (Entry Height PackedNode)
-
-initRecHeap :: RecomputeHeap
--- TODO
-initRecHeap = undefined
 
 ---------------------------------- Observers ----------------------------------
 data ObsState = Created | InUse | Disallowed | Unlinked
@@ -177,21 +185,18 @@ instance Eq PackedObs where
 instance Ord PackedObs where
   (<=) po1 po2 = (getObsID po1) <= (getObsID po2)
 
-data DummyType = DummyType
-data DummyType2 a = DummyType2
-
 ---------------------------------- State --------------------------------------
 type StateIO a = StateT StateInfo IO a
 
 data StateInfo = StateInfo {
     _info           :: StatusInfo
-  , _recHeap        :: RecomputeHeap
+  , _recHeap        :: Set PackedNode
   , _observer       :: ObserverInfo
   , _varSetDuringStb :: [PackedVar]
   }
 
 initState :: StateInfo
-initState = StateInfo initStatusInfo initRecHeap initObserverInfo []
+initState = StateInfo initStatusInfo Set.empty initObserverInfo []
 
 data Status = Stabilizing
             | NotStabilizing
@@ -223,7 +228,10 @@ initObserverInfo = ObserverInfo 0 Map.empty [] []
 
 type StabilizationNum = Int
 initStbNum :: StabilizationNum
-initStbNum = 0
+initStbNum = none
+
+none :: Int
+none = -1
 
 ---- These fields are for debugging and profiling
 data DebugInfo = DebugInfo {
@@ -256,7 +264,7 @@ initRecomputedInfo :: RecomputedInfo
 initRecomputedInfo = RecomputedInfo 0 0 0
 
 makeLenses ''Node
-makeLenses ''Temp
+-- makeLenses ''Temp
 makeLenses ''Edges
 makeLenses ''StateInfo
 makeLenses ''StatusInfo

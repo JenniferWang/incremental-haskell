@@ -1,8 +1,23 @@
+### Questions
+## How to write `Observer`?
+Currently, there is a bug in `Observer`. When we create a new observer, it returns a copy of `Observer` rather than a proxy. Thus, the test would fail. Yes, like `Var` (a proxy wrap around `NodeRef`, thus could change value), `Observer` should behave in a similar way. But unlike `NodeRef`, which has been used all over the place, creating a `ObserverRef` and another proxy makes code clumsy... 
+
+## How is it possible to mutate value of `Var` while stabilizing?
+If the how program is run in `StateIO`, and it is single threaded, how is it possible to mutate the variable during stabilization? Will the main just get stuck there? Seems that we might need to fork a new thread to do the computation, but then will we have data race problem cause the whole state is shared? To be more specific, we could extract out the current state and pass a copy of it to the child thread, but still, we are not making copy of the nodes. As the recomputation is based on the height of nodes, which is stored in the `temp` field, we need to mutate the node in the child thread.
+
 ## How to add finalizer to observers?
 Currently, all the observer instances are stored in map `State.observer.all` and the correspoinding `Node` keeps a set of `ObsID`, which serves as a key in the map. 
 This implementation is less efficient than the original doubly linked list design and doesn't support finalizer. [link](https://github.com/janestreet/incremental/blob/master/src/incremental_intf.ml#L856)
 
 ## Right now we don't support `onUpdateHandler`
+
+### Some ideas
+
+## How to do recomputation?
+In the JS library, they use `adjust_heights_heap` and `recompute_heap` to do recompute necessary nodes. The `recompute_heap` is not a real heap. It is an array, the index of which is equal to the height of the nodes. Each cell constains a pointer to a doubly-linked-list of nodes with the same height. We could certainly do the same thing, but we would like to try something much easier currently.
+ - Do not keep the `height` information
+ - Keep a `changedNodes`(List/Set) in the `State`. When the user mutate the value of a `Var`, add the node reference to `changedNodes`.
+ - During stabilization, use topological sort (dfs + stack) to update node values starting from the nodes in `changedNodes`.
 
 ## State transformer `StateIO`
 ```

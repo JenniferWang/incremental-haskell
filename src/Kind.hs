@@ -1,7 +1,6 @@
 module Kind
   where
 
-import Lens.Simple
 import Types
 
 maxNumChildren :: Kind a -> Int
@@ -21,7 +20,7 @@ slowGetChild k index = (iteriChildren k (\_ n -> n)) !! index
 -- | 'iteriChildren' iterate all the child node
 iteriChildren :: (Eq a) => Kind a -> (Index -> PackedNode -> b) -> [b]
 iteriChildren (Map _ n0_ref) g = [g 0 (PackedNode n0_ref)]
-iteriChildren (Freeze _ child f) g = [g 0 (PackedNode child)]
+iteriChildren (Freeze _ child _) g = [g 0 (PackedNode child)]
 iteriChildren _ _              = []
 
 freeze_child_index :: Index

@@ -11,14 +11,16 @@ import Lens.Simple
 
 import qualified Var as V
 import qualified Kind as K
+import qualified StabilizationNum as Stb
 import Types
 import Utils
 
 ---------------------------------- Node ---------------------------------------
-createNode :: (Eq a) => IO (NodeRef a)
-createNode = do
-  i <- newUnique
-  ref  <- newIORef initNode
+createNode :: (Eq a) => Kind a -> IO (NodeRef a)
+createNode k = do
+  i    <- newUnique
+  let node = initNode
+  ref  <- newIORef (node{_kind = k})
   return (Ref ref i)
 
 -- Checks whether n is a valid node
@@ -29,6 +31,16 @@ isValid n = case (n^.kind) of Invalid -> False
 
 isValidP :: PackedNode -> IO Bool
 isValidP (PackedNode ref) = fmap isValid $ readIORef (getRef ref)
+
+isStale :: (Eq a) => Node a -> Bool
+isStale node =
+  let rcp = node^.value.recomputedAt in
+  case node^.kind of
+    Uninitialized       -> error "[Node.isStale] The node is uninitialized"
+    Invalid             -> False
+    Variable _ _ set_at -> set_at > rcp
+    -- A const node is stale only at initialization.
+    _                   -> Stb.isNone rcp
 
 -- | Check whether some IORef Node is the parent of current node
 isParent :: (Eq a) => PackedNode -> Node a -> Bool
@@ -43,6 +55,7 @@ maxNumChildren n = K.maxNumChildren $ n^.kind
 
 getParents :: Node a -> [PackedNode]
 getParents n = iteriParents n (\_ p -> p)
+
 
 -- | 'iteriParents' iterates all the parent nodes
 iteriParents :: Node a -> (Index -> PackedNode -> b) -> [b]
@@ -118,27 +131,16 @@ updateRecomputedAt (Ref ref _) = do
   env <- get
   modifyIORefT ref (\n -> n & value.recomputedAt .~ (env^.info.stbNum))
 
-getHeight :: Eq a => NodeRef a -> StateIO Height
-getHeight (Ref ref _) = readIORefT ref >>= \n -> return (n^.temp.height)
-
-getHeightP :: PackedNode -> StateIO Height
-getHeightP (PackedNode noderef) = getHeight noderef
-
-setHeight :: Eq a => NodeRef a -> Height -> StateIO ()
-setHeight (Ref ref _) h = modifyIORefT ref (\n -> n & temp.height .~ h)
-
 removeObs :: Eq a => NodeRef a -> ObsID -> StateIO ()
 removeObs (Ref ref _) i = do
   modifyIORefT ref (\n -> n & edges.obsOnNode %~ (Set.delete i))
 
-test :: IO ()
-test = do
-  ref1 <- createNode :: IO (NodeRef Int)
-  ref2 <- createNode :: IO (NodeRef Int)
-  ref3 <- createNode :: IO (NodeRef Int)
-  addParent ref2 ref3
-  addParent ref2 ref1
-  return ()
+getParentsP :: PackedNode -> StateIO [PackedNode]
+getParentsP (PackedNode noderef) = do
+  n <- readIORefT (getRef noderef)
+  return $ getParents n
 
----------------------------------- Helper --------------------------------------
+isStaleP :: (Eq a) => NodeRef a -> StateIO Bool
+isStaleP (Ref ref _) = readIORefT ref >>= return . isStale
+
 
