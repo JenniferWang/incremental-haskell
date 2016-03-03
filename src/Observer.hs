@@ -5,6 +5,7 @@ import Control.Monad.Trans.State.Strict hiding (state)
 import qualified Data.Map.Strict as Map
 import Prelude hiding (all)
 import Data.Maybe(isNothing, fromJust)
+import Unsafe.Coerce
 
 import Lens.Simple
 
@@ -21,15 +22,21 @@ writeObsState :: ObsState -> PackedObs -> PackedObs
 writeObsState new_state (PackObs o) = PackObs (o{_state = new_state})
 
 ------------------------------ StateIO Monad -------------------------------
-obsValueExn :: Eq a => InterObserver a -> StateIO a
-obsValueExn o = case (o^.state) of
-                  -- TODO: change to failwith
-                  Created -> error "State.obsValueExn called without stabilizing"
-                  InUse   -> do v <- N.getNodeValue (o^.observing)
-                                if (isNothing v)
-                                   then error "Attempt to get value of an invalid node"
-                                   else return (fromJust v)
-                  _       -> error "State.obsValueExn called after disallowing future use"
+obsValueExnInter :: Eq a => InterObserver a -> StateIO a
+obsValueExnInter o = case (o^.state) of
+  -- TODO: change to failwith
+  Created -> error "obsValueExnInter: Called without stabilizing"
+  InUse   -> do v <- N.getNodeValue (o^.observing)
+                if (isNothing v)
+                  then error "obsValueExnInter: Attempt to get value of an invalid node"
+                  else return (fromJust v)
+  _       -> error "obsValueExnInter: Called after disallowing future use"
+
+obsValueExn :: Eq a => Observer a -> StateIO a
+obsValueExn (Obs id) = do
+  (PackObs ob) <- getObsByID id
+  value        <- obsValueExnInter ob
+  return $ unsafeCoerce value
 
 unlinkFmObserving :: Eq a => InterObserver a -> StateIO ()
 unlinkFmObserving ob = N.removeObs (ob^.observing) (ob^.obsID)

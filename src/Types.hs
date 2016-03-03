@@ -79,7 +79,7 @@ initKind = Uninitialized
 data NodeRef a = Ref (IORef (Node a)) !Unique
 
 instance Show (NodeRef a) where
-  show (Ref _ index) = "[NodeRef ID = " ++ (show $ hashUnique index) ++ " ]"
+  show (Ref _ index) = "[NodeRef ID = " ++ (show $ hashUnique index) ++ "]"
 
 instance Eq (NodeRef a) where
   (==) (Ref _ i1) (Ref _ i2) = i1 == i2
@@ -125,8 +125,10 @@ data ValueInfo a = ValueInfo {
   , _changedAt    :: StabilizationNum
   }
 
+-- When the node is initialized, the value is **not** computed, thus
+-- bose 'recomputedAt' and 'changedAt' is set to none
 initValueInfo :: ValueInfo a
-initValueInfo = ValueInfo Nothing Nothing initStbNum initStbNum
+initValueInfo = ValueInfo Nothing Nothing none none
 
 data PackedNode = forall a. Eq a => PackedNode (NodeRef a)
 
@@ -185,6 +187,8 @@ instance Eq PackedObs where
 instance Ord PackedObs where
   (<=) po1 po2 = (getObsID po1) <= (getObsID po2)
 
+newtype Observer a = Obs ObsID
+
 ---------------------------------- State --------------------------------------
 type StateIO a = StateT StateInfo IO a
 
@@ -228,7 +232,7 @@ initObserverInfo = ObserverInfo 0 Map.empty [] []
 
 type StabilizationNum = Int
 initStbNum :: StabilizationNum
-initStbNum = none
+initStbNum = none + 1
 
 none :: Int
 none = -1

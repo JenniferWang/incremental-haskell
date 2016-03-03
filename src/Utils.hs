@@ -14,3 +14,6 @@ readIORefT = (lift . readIORef)
 modifyIORefT :: (IORef a) -> (a -> a) -> StateIO ()
 modifyIORefT ref g = lift $ modifyIORef ref g
 
+putStrLnT :: String -> StateIO ()
+putStrLnT = (lift . putStrLn)
+

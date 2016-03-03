@@ -109,7 +109,7 @@ isNecessary n = (numParents n) > 0
 -- | 'valueExn' extracts the value from the node
 valueExn :: (Eq a) => Node a -> a
 valueExn n
-  | isNothing val = error "attempt to get value of an invalid node"
+  | isNothing val = error "Node.valueExn: attempt to get value of an invalid node"
   | otherwise     = fromJust val
     where val = n^.value.v
 

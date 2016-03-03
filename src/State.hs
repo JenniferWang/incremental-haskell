@@ -69,7 +69,7 @@ invalidateNode _ pn@(PackedNode ref) = do
   if not (N.isValid n || flag)
      then return False
      else do
-       when verbose (lift $ putStrLn "adding invalid node, invalidating parents")
+       when verbose (putStrLnT "--* adding invalid node, invalidating parents")
        -- update node information
        N.setNodeValue ref Nothing
        N.updateChangedAt ref
@@ -89,6 +89,7 @@ propagateInvalidity ref = dfsParentWithoutRepeat ref invalidateNode
 
 addParent :: (Eq a, Eq b) => NodeRef a -> NodeRef b -> StateIO ()
 addParent child_ref par_ref = do
+  putStrLnT $ "--* State.addParent from child " ++ show child_ref ++ " to " ++ show par_ref
   child  <- readIORefT (getRef child_ref)
   let was_necessary = N.isNecessary child
   -- when (not $ N.isNecessary parent) (error "We only add necessary parent")
@@ -101,6 +102,7 @@ addParent child_ref par_ref = do
 becameNecessary :: Eq a => NodeRef a -> StateIO ()
 becameNecessary parent@(Ref pref _) = do
   -- TODO: add fail conditions
+  putStrLnT $ "--* State.becameNecessary " ++ show parent
   modify (\s -> s & info.debug.nodesBecame.necessary %~ (+ 1))
   par_node <- readIORefT pref
   sequence_ $
@@ -124,6 +126,7 @@ changeChild parent old_child new_child = do
 -- Recompute the value of current node
 recompute :: PackedNode -> StateIO ()
 recompute (PackedNode nf) = do
+  when verbose (putStrLnT $ "--* State.recompute node " ++ show nf)
   modify (\s -> s & info.debug.nodesRecomputed.byDefault %~ (+ 1))
   N.updateRecomputedAt nf
   n0 <- readIORefT (getRef nf)
@@ -158,6 +161,7 @@ recomputeEverythingThatIsNecessary :: StateIO ()
 recomputeEverythingThatIsNecessary = do
   env <- get
   let roots = Set.toList $ env^.recHeap
+  when (verbose) (putStrLnT $ "--* Current root set is " ++ show roots)
   -- check if the graph is DAG
   is_cyclic <- foldM go False roots
   when (is_cyclic) $ error "Cycle detected! The graph is not DAG"
@@ -186,7 +190,11 @@ recomputeEverythingThatIsNecessary = do
 
 -- TODO: marked as inline
 addToRecomputeHeap :: PackedNode -> StateIO ()
-addToRecomputeHeap pn = modify (\s -> s & recHeap %~ (Set.insert pn))
+addToRecomputeHeap pn = do
+  modify (\s -> s & recHeap %~ (Set.insert pn))
+  -- TODO: delete
+  env <- get
+  putStrLnT $ "--* After addToRecomputeHeap, root is " ++ show (env^.recHeap)
 
 ---------------------------------- Observers ----------------------------------
 unlinkDisallowedObs :: StateIO ()
@@ -214,16 +222,17 @@ disallowFutureUse (InterObs i s0 _)
        O.modifyObsState i Disallowed
   | otherwise = return ()
 
-createObserver :: Eq a => NodeRef a -> StateIO (InterObserver a)
+createObserver :: Eq a => NodeRef a -> StateIO (Observer a)
 createObserver nf = do
   i   <- lift newUnique
   let obs = InterObs i Created nf
   modify (\s -> s & observer.numActive %~ (+ 1))
   modify (\s -> s & observer.new %~ (PackObs obs :))
-  return obs
+  return (Obs i)
 
 addNewObservers :: StateIO ()
 addNewObservers = do
+  putStrLnT "--* adding new observers to global state"
   env <- get
   mapM_ add0 $ env^.observer.new
   modify (\s -> s & observer.new .~ [])
@@ -242,16 +251,19 @@ addNewObservers = do
         when (not was_necessary) $ becameNecessary nf
 
 ---------------------------------- Var ----------------------------------
+-- Create a new node with kind = Variable. Return a proxy to the node
+-- This will not add the node to the DAG
 createVar :: Eq a => a -> StateIO (Var a)
 createVar v0 = do
   --TODO scope
-  stbnum  <- getStbNum
+  stbnum <- getStbNum
   let var = Variable v0 Nothing stbnum
   watched <- createNode var
+  when verbose (putStrLnT $ "--* New Var created " ++ show watched)
   return (Var watched)
 
 setVarWhileNotStabilizing :: Eq a => Var a -> a -> StateIO ()
-setVarWhileNotStabilizing (Var (Ref ref _)) new_v = do
+setVarWhileNotStabilizing (Var nf@(Ref ref _)) new_v = do
   modify (\s -> s & info.debug.varSets %~ (+ 1))
   watched <- readIORefT ref
   stbnum  <- getStbNum
@@ -259,6 +271,7 @@ setVarWhileNotStabilizing (Var (Ref ref _)) new_v = do
       new_k = old_k{mvalue = new_v}
   if (setAt old_k < stbnum)
      then do modifyIORefT ref (\n -> n & kind .~ new_k{setAt = stbnum})
+             when (N.isNecessary watched) (addToRecomputeHeap $ pack nf)
              -- when (N.isNecessary watched && not_in_rec_heap) (add to heap)
      else modifyIORefT ref (\n -> n & kind .~ new_k)
 
@@ -372,16 +385,17 @@ verbose = True
 --   nodes <- testCreateGraph
 --   dfsParentWithoutRepeatP (nodes !! 0) testPrintNodeInfo
 
+printParents :: Var a -> StateIO ()
+printParents var = do
+  n <- readIORefT $ getRef (watch var)
+  putStrLnT $ show (N.getParents n)
+
 testVar :: StateIO ()
 testVar = do
   v1    <- createVar 5
   v2    <- createNode (Map (+ 6) (watch v1))
-
   obs   <- createObserver v2
-
-  setVar v1 7
-  curr10 <- V.getValue v1
-  (lift . putStrLn) $ "value for v1 is " ++ show curr10
+  putStrLnT "All nodes are added"
 
   stabilize
   curr12 <- V.getValue v1
@@ -389,8 +403,13 @@ testVar = do
   curr22 <- O.obsValueExn obs
   (lift . putStrLn) $ "value for v2 is " ++ show curr22
 
+  setVar v1 10
+  stabilize
+  curr13 <- V.getValue v1
+  (lift . putStrLn) $ "value for v1 is " ++ show curr13
+  curr23 <- O.obsValueExn obs
+  (lift . putStrLn) $ "value for v2 is " ++ show curr23
 
-    -- hit exception because initial recompute heap is not defined
 
 runTest :: StateIO a -> IO ()
 runTest action = runStateT action initState >> return ()
