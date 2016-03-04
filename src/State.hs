@@ -3,6 +3,7 @@ import Lens.Simple
 import Control.Monad.Trans.State.Strict
 import Control.Monad.Trans.Class
 import Control.Monad (when, foldM)
+import Data.Traversable (mapM)
 import Data.IORef
 import Data.Set (Set)
 import Data.Maybe(isNothing, fromJust)
@@ -143,10 +144,13 @@ recompute (PackedNode nf) = do
                           else becameUnnecessary nf
       maybeChangeValue nf cv
     Invalid                -> error "Invalid node should not be in the recompute heap"
-    Map f cref             -> (valueExn cref) >>= \cv -> maybeChangeValue nf (f cv)
     Uninitialized          -> error "Current node is uninitialized"
     Variable v0 _ _        -> maybeChangeValue nf v0
-
+    Map f b                -> (valueExn b) >>= \b' -> maybeChangeValue nf (f b')
+    Map2 f b c             -> do
+      x <- valueExn b
+      y <- valueExn c
+      maybeChangeValue nf (f x y)
     where maybeChangeValue :: Eq a => NodeRef a -> a -> StateIO ()
           maybeChangeValue ref new_v = do
             -- TODO: Cutoff.should_cutoff
@@ -398,17 +402,17 @@ testVar :: StateIO ()
 testVar = do
   v1    <- createVar 5
   v2    <- createNode (Map (+ 6) (watch v1))
-  obs   <- createObserver v2
+  -- obs   <- createObserver v2
   putStrLnT "All nodes are added"
 
   stabilize
   printVar v1
-  printObs obs
+  -- printObs obs
 
   setVar v1 10
   stabilize
   printVar v1
-  printObs obs
+  -- printObs obs
 
 runTest :: StateIO a -> IO ()
 runTest action = runStateT action initState >> return ()
