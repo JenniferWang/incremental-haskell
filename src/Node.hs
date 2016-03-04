@@ -6,6 +6,7 @@ import Data.Unique
 import Prelude hiding (id)
 import Data.Maybe(fromJust, isNothing)
 import qualified Data.Set as Set
+import Control.Monad
 
 import Lens.Simple
 
@@ -77,7 +78,13 @@ hasParent n parent = or $ iteriParents n (\_ ref -> ref == parent)
 
 shouldBeInvalidated :: (Eq a) => Node a -> IO Bool
 shouldBeInvalidated n =
-  case (n^.kind) of Map _ n_ref -> hasInvalidChild0 n_ref
+  case (n^.kind) of Map _  n1          -> hasInvalidChild0 n1
+                    Map2 _ n1 n2       -> liftM2 (||) (hasInvalidChild0 n1) (hasInvalidChild0 n2) 
+                    Map3 _ n1 n2 n3    -> fmap and $ 
+                          sequence [(hasInvalidChild0 n1), (hasInvalidChild0 n2), (hasInvalidChild0 n3)]
+                    Map4 _ n1 n2 n3 n4 -> fmap and $ 
+                          sequence [(hasInvalidChild0 n1), (hasInvalidChild0 n2), 
+                                    (hasInvalidChild0 n3), (hasInvalidChild0 n4)]
                     _           -> return False
 
 setKind :: (Eq a) => NodeRef a -> Kind a -> IO ()

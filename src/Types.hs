@@ -10,7 +10,6 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Data.Heap (Heap,Entry(..))
 import Control.Monad.Trans.State.Strict hiding (State)
 import Prelude hiding (all)
 
@@ -96,10 +95,10 @@ instance Ord (NodeRef a) where
   (<=) (Ref _ i1) (Ref _ i2) = i1 <= i2
 
 getID :: NodeRef a -> Unique
-getID (Ref ref id) = id
+getID (Ref _ i) = i
 
 getRef :: NodeRef a -> IORef (Node a)
-getRef (Ref ref id) = ref
+getRef (Ref ref _) = ref
 
 data Node a = Node {
     _kind  :: Kind a
