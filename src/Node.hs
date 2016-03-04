@@ -70,22 +70,19 @@ hasInvalidChild :: (Eq a) => Node a -> IO Bool
 hasInvalidChild n = or <$>
   (sequence $ iteriChildren n (\_ ref -> not <$> (isValidP ref)))
 
-hasInvalidChild0 :: (Eq a) => NodeRef a-> IO Bool
-hasInvalidChild0 ref = readIORef (getRef ref) >>= hasInvalidChild
+-- hasInvalidChild0 :: (Eq a) => NodeRef a-> IO Bool
+-- hasInvalidChild0 ref = readIORef (getRef ref) >>= hasInvalidChild
 
 hasParent :: (Eq a) => Node a -> PackedNode -> Bool
 hasParent n parent = or $ iteriParents n (\_ ref -> ref == parent)
 
 shouldBeInvalidated :: (Eq a) => Node a -> IO Bool
 shouldBeInvalidated n =
-  case (n^.kind) of Map _  n1          -> hasInvalidChild0 n1
-                    Map2 _ n1 n2       -> liftM2 (||) (hasInvalidChild0 n1) (hasInvalidChild0 n2) 
-                    Map3 _ n1 n2 n3    -> fmap and $ 
-                          sequence [(hasInvalidChild0 n1), (hasInvalidChild0 n2), (hasInvalidChild0 n3)]
-                    Map4 _ n1 n2 n3 n4 -> fmap and $ 
-                          sequence [(hasInvalidChild0 n1), (hasInvalidChild0 n2), 
-                                    (hasInvalidChild0 n3), (hasInvalidChild0 n4)]
-                    _           -> return False
+  case (n^.kind) of Map  _ _        -> hasInvalidChild n
+                    Map2 _ _ _      -> hasInvalidChild n
+                    Map3 _ _ _ _    -> hasInvalidChild n
+                    Map4 _ _ _ _ _  -> hasInvalidChild n
+                    _               -> return False
 
 setKind :: (Eq a) => NodeRef a -> Kind a -> IO ()
 setKind ref k = modifyIORef' (getRef ref) (\n -> n{_kind = k})

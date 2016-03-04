@@ -171,6 +171,8 @@ recomputeEverythingThatIsNecessary = do
   -- topological sort: dfs + list
   (stack, _) <- topo roots [] Set.empty
   mapM_ recompute stack
+  -- clear the recompute heap
+  modify (\s -> s & recHeap .~ Set.empty)
     where
       topo []     stack seen = return (stack, seen)
       topo (x:xs) stack seen
@@ -365,8 +367,6 @@ app3 f b c d = valueExn b >>= \bv -> app2 (f bv) c d
 
 app4 f b c d e = valueExn b >>= \bv -> app3 (f bv) c d e
 
-
-
 ---------------------------------- Toy Test --------------------------------------
 verbose :: Bool
 verbose = True
@@ -378,37 +378,14 @@ printObs obs = O.obsValueExn obs
 printVar :: (Show a, Eq a) => Var a -> StateIO ()
 printVar x = V.getValue x
           >>= \y -> putStrLnT $ show x ++ " = " ++ show y -- | Create a graph for testing
--- testCreateGraph :: StateIO [PackedNode]
--- testCreateGraph = do
---   n1 <- createNode :: StateIO (NodeRef Int)
---   n2 <- createNode :: StateIO (NodeRef Int)
---   n3 <- createNode :: StateIO (NodeRef Int)
---   n4 <- createNode :: StateIO (NodeRef Int)
---   addParent n1 n2
---   addParent n1 n3
---   addParent n2 n4
---   addParent n3 n4
---   return [pack n1, pack n2, pack n3, pack n4]
-
--- testPrintNodeInfo :: Maybe PackedNode -> PackedNode -> StateIO Bool
--- testPrintNodeInfo _ pn = do
---   h <- N.getHeightP pn
---   (lift . putStrLn) $ "Reach node id = " ++ show pn ++ " with height = " ++ show h
---   return True
-
--- | try to do dfs from a node and print the node id visited
--- testDfsParent :: StateIO ()
--- testDfsParent = do
---   nodes <- testCreateGraph
---   dfsParentWithoutRepeatP (nodes !! 0) testPrintNodeInfo
 
 printParents :: Var a -> StateIO ()
 printParents var = do
   n <- readIORefT $ getRef (watch var)
   putStrLnT $ show (N.getParents n)
 
-testVar :: StateIO ()
-testVar = do
+testMap :: StateIO ()
+testMap = do
   v1    <- createVar 5
   v2    <- createNode (Map (+ 6) (watch v1))
   -- obs   <- createObserver v2
@@ -422,6 +399,24 @@ testVar = do
   stabilize
   printVar v1
   -- printObs obs
+
+testMap2 :: StateIO ()
+testMap2 = do
+  v1 <- createVar 5
+  v2 <- createVar 10
+  n  <- createNode (Map2 (+) (watch v1) (watch v2))
+  ob <- createObserver n
+  putStrLnT "All nodes are added"
+
+  stabilize
+  printObs ob
+  putStrLnT "After first stabilization"
+
+  setVar v1 7
+  -- setVar v2 11
+  stabilize
+  printObs ob
+  putStrLnT "After second stabilization"
 
 runTest :: StateIO a -> IO ()
 runTest action = runStateT action initState >> return ()
