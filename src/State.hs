@@ -147,10 +147,21 @@ recompute (PackedNode nf) = do
     Uninitialized          -> error "Current node is uninitialized"
     Variable v0 _ _        -> maybeChangeValue nf v0
     Map f b                -> (valueExn b) >>= \b' -> maybeChangeValue nf (f b')
-    Map2 f b c             -> do
+    Map2 f b c             -> do 
       x <- valueExn b
       y <- valueExn c
       maybeChangeValue nf (f x y)
+    Map3 f b c d           -> do 
+      x <- valueExn b
+      y <- valueExn c
+      z <- valueExn d
+      maybeChangeValue nf (f x y z)
+    Map4 f b c d e         -> do 
+      x <- valueExn b
+      y <- valueExn c
+      z <- valueExn d
+      w <- valueExn e
+      maybeChangeValue nf (f x y z w)
     where maybeChangeValue :: Eq a => NodeRef a -> a -> StateIO ()
           maybeChangeValue ref new_v = do
             -- TODO: Cutoff.should_cutoff
@@ -171,7 +182,7 @@ recomputeEverythingThatIsNecessary = do
   when (is_cyclic) $ error "Cycle detected! The graph is not DAG"
   -- topological sort: dfs + list
   (stack, _) <- topo roots [] Set.empty
-  mlapM_ recompute stack
+  mapM_ recompute stack
     where
       topo []     stack seen = return (stack, seen)
       topo (x:xs) stack seen
