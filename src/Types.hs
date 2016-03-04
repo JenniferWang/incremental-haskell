@@ -41,20 +41,28 @@ data Kind a =
            , onlyFreezeWhen :: (a -> Bool)
            }
   | Invalid
-  | forall b. Eq b => Map (b -> a) (NodeRef b)
   | Uninitialized
-  | Variable { mvalue            :: a --TODO: not sure if we need to keep this
+  | Variable { mvalue            :: a
              , valueSetDuringStb :: !(Maybe a)
              , setAt             :: StabilizationNum
              }
+  | forall b. Eq b => Map (b -> a) (NodeRef b)
+  | forall b c. (Eq b, Eq c) => Map2 (b -> c -> a) (NodeRef b) (NodeRef c)
+  | forall b c d. (Eq b, Eq c, Eq d) =>
+      Map3 (b ->c -> d -> a) (NodeRef b) (NodeRef c) (NodeRef d)
+  | forall b c d e. (Eq b, Eq c, Eq d, Eq e) =>
+      Map4 (b -> c -> d -> e -> a) (NodeRef b) (NodeRef c) (NodeRef d) (NodeRef e)
 
 instance Show (Kind a) where
-  show (Const _)      = "Const"
-  show (Freeze _ _ _) = "Freeze"
-  show Invalid        = "Invalid"
-  show (Map _ _)      = "Map"
-  show Uninitialized  = "Uninitialized"
-  show (Variable _ _ _)   = "Var"
+  show (Const _)        = "Const"
+  show (Freeze _ _ _)   = "Freeze"
+  show Invalid          = "Invalid"
+  show (Map _ _)        = "Map"
+  show (Map2 _ _ _)     = "Map2"
+  show (Map3 _ _ _ _)   = "Map3"
+  show (Map4 _ _ _ _ _) = "Map4"
+  show Uninitialized    = "Uninitialized"
+  show (Variable _ _ _) = "Var"
 
 initKind :: Kind a
 initKind = Uninitialized
