@@ -167,7 +167,7 @@ recomputeEverythingThatIsNecessary = do
   when (is_cyclic) $ error "Cycle detected! The graph is not DAG"
   -- topological sort: dfs + list
   (stack, _) <- topo roots [] Set.empty
-  mapM_ recompute stack
+  mlapM_ recompute stack
     where
       topo []     stack seen = return (stack, seen)
       topo (x:xs) stack seen
