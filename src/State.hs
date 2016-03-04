@@ -146,11 +146,10 @@ recompute (PackedNode nf) = do
     Invalid                -> error "Invalid node should not be in the recompute heap"
     Uninitialized          -> error "Current node is uninitialized"
     Variable v0 _ _        -> maybeChangeValue nf v0
-    Map f b                -> (valueExn b) >>= \b' -> maybeChangeValue nf (f b')
-    Map2 f b c             -> do
-      x <- valueExn b
-      y <- valueExn c
-      maybeChangeValue nf (f x y)
+    Map  f b               -> app1 f b >>= maybeChangeValue nf
+    Map2 f b c             -> app2 f b c >>= maybeChangeValue nf
+    Map3 f b c d           -> app3 f b c d >>= maybeChangeValue nf
+    Map4 f b c d e         -> app4 f b c d e >>= maybeChangeValue nf
     where maybeChangeValue :: Eq a => NodeRef a -> a -> StateIO ()
           maybeChangeValue ref new_v = do
             -- TODO: Cutoff.should_cutoff
@@ -357,6 +356,17 @@ dfsParentWithRepeat start check = go Nothing (pack start) Set.empty
       let new_path = Set.insert y path0
       mapM_ (\pn -> go (Just y) pn new_path) (N.getParents n)
 
+---------------------------------- Helper ---------------------------------------
+app1 f b = valueExn b >>= return . f
+
+app2 f b c = valueExn b >>= \bv -> app1 (f bv) c
+
+app3 f b c d = valueExn b >>= \bv -> app2 (f bv) c d
+
+app4 f b c d e = valueExn b >>= \bv -> app3 (f bv) c d e
+
+
+
 ---------------------------------- Toy Test --------------------------------------
 verbose :: Bool
 verbose = True
@@ -367,8 +377,7 @@ printObs obs = O.obsValueExn obs
 
 printVar :: (Show a, Eq a) => Var a -> StateIO ()
 printVar x = V.getValue x
-          >>= \y -> putStrLnT $ show x ++ " = " ++ show y
--- | Create a graph for testing
+          >>= \y -> putStrLnT $ show x ++ " = " ++ show y -- | Create a graph for testing
 -- testCreateGraph :: StateIO [PackedNode]
 -- testCreateGraph = do
 --   n1 <- createNode :: StateIO (NodeRef Int)
