@@ -2,37 +2,35 @@ module Node where
 
 import Data.IORef
 import Control.Monad.Trans.State.Strict
+import Control.Monad.Trans.Class (lift)
 import Data.Unique
 import Prelude hiding (id)
 import Data.Maybe(fromJust, isNothing)
 import qualified Data.Set as Set
-import Control.Monad
 
 import Lens.Simple
 
-import qualified Var as V
-import qualified Kind as K
+import qualified Var              as V
+import qualified Kind             as K
 import qualified StabilizationNum as Stb
+import qualified Scope            as Scope
 import Types
 import Utils
 
 ---------------------------------- Node ---------------------------------------
-createNode :: (Eq a) => Kind a -> IO (NodeRef a)
-createNode k = do
-  i    <- newUnique
-  let node = initNode
-  ref  <- newIORef (node{_kind = k})
-  return (Ref ref i)
+create :: (Eq a) => Scope -> Kind a -> StateIO (NodeRef a)
+create create_in k = do
+  i   <- lift $ newUnique
+  ref <- lift $ newIORef (initNode{ _kind = k, _createdIn = create_in })
+  let node_ref = Ref ref i
+  Scope.addNode create_in node_ref
+  return node_ref
 
 -- Checks whether n is a valid node
 -- it is if and only if its kind is valid
 isValid :: (Eq a) => Node a -> Bool
 isValid n = case (n^.kind) of Invalid -> False
                               _       -> True
-
-isValidP :: PackedNode -> IO Bool
-isValidP (PackedNode ref) = fmap isValid $ readIORef (getRef ref)
-
 isStale :: (Eq a) => Node a -> Bool
 isStale node =
   let rcp = node^.value.recomputedAt in
@@ -57,7 +55,6 @@ maxNumChildren n = K.maxNumChildren $ n^.kind
 getParents :: Node a -> [PackedNode]
 getParents n = iteriParents n (\_ p -> p)
 
-
 -- | 'iteriParents' iterates all the parent nodes
 iteriParents :: Node a -> (Index -> PackedNode -> b) -> [b]
 iteriParents n g = map apply_g (zip [0..] (Set.toList $ n^.edges.parents))
@@ -66,17 +63,15 @@ iteriParents n g = map apply_g (zip [0..] (Set.toList $ n^.edges.parents))
 hasChild :: (Eq a) => Node a -> PackedNode -> Bool
 hasChild n child = or $ iteriChildren n (\_ ref -> ref == child)
 
-hasInvalidChild :: (Eq a) => Node a -> IO Bool
+hasInvalidChild :: (Eq a) => Node a -> StateIO Bool
 hasInvalidChild n = or <$>
-  (sequence $ iteriChildren n (\_ ref -> not <$> (isValidP ref)))
-
--- hasInvalidChild0 :: (Eq a) => NodeRef a-> IO Bool
--- hasInvalidChild0 ref = readIORef (getRef ref) >>= hasInvalidChild
+  (sequence $ iteriChildren n (\_ ref -> not <$> (go ref)))
+  where go (PackedNode ref) = readNodeRef ref >>= return . isValid
 
 hasParent :: (Eq a) => Node a -> PackedNode -> Bool
 hasParent n parent = or $ iteriParents n (\_ ref -> ref == parent)
 
-shouldBeInvalidated :: (Eq a) => Node a -> IO Bool
+shouldBeInvalidated :: (Eq a) => Node a -> StateIO Bool
 shouldBeInvalidated n =
   case (n^.kind) of Map  _ _        -> hasInvalidChild n
                     Map2 _ _ _      -> hasInvalidChild n
@@ -84,17 +79,16 @@ shouldBeInvalidated n =
                     Map4 _ _ _ _ _  -> hasInvalidChild n
                     _               -> return False
 
-setKind :: (Eq a) => NodeRef a -> Kind a -> IO ()
-setKind ref k = modifyIORef' (getRef ref) (\n -> n{_kind = k})
+setKind :: (Eq a) => NodeRef a -> Kind a -> StateIO ()
+setKind ref k = modifyNodeRef ref (\n -> n{_kind = k})
 
 -- | 'addParent' adds the parent node to the child node's parent list
 -- Here the parent is added to the beginning of the parents list
 -- The OCaml version takes the child_index for performance reason.
 -- https://github.com/janestreet/incremental/blob/master/src/node.ml#L519
-addParent :: (Eq a, Eq b) => NodeRef a -> NodeRef b -> IO ()
-addParent (Ref cref _) parent = do
-  c <- readIORef cref
-  writeIORef cref (c & edges.parents %~ (Set.insert $ pack parent))
+addParent :: (Eq a, Eq b) => NodeRef a -> NodeRef b -> StateIO ()
+addParent ref parent =
+  modifyNodeRef ref (\c -> c & edges.parents %~ (Set.insert $ pack parent))
 
 -- | 'removeParent' does not check whether [parent] is a true parent of [child]
 removeParent :: (Eq a, Eq b) => NodeRef a -> NodeRef b -> IO ()
@@ -117,7 +111,6 @@ valueExn n
   | otherwise     = fromJust val
     where val = n^.value.v
 
------------------------------- StateIO Monad -------------------------------
 setNodeValue :: Eq a => NodeRef a -> Maybe a -> StateIO ()
 setNodeValue (Ref ref _) v0 = modifyIORefT ref
                                 (\n -> n & value.v .~ v0)

@@ -2,11 +2,11 @@ module State where
 import Lens.Simple
 import Control.Monad.Trans.State.Strict
 import Control.Monad.Trans.Class
-import Control.Monad (when, foldM)
+import Control.Monad (when, foldM, foldM_)
 import Data.Traversable (mapM)
 import Data.IORef
 import Data.Set (Set)
-import Data.Maybe(isNothing, fromJust)
+import Data.Maybe(isNothing, fromJust, isJust)
 import qualified Data.Set as Set
 import qualified Data.Map as Map
 import Data.Unique
@@ -17,13 +17,25 @@ import Utils
 import qualified Node     as N
 import qualified Observer as O
 import qualified Var      as V
+import qualified Kind     as K
 
 ---------------------------------- Node ----------------------------------
+createNodeIn :: Eq a => Scope -> Kind a -> StateIO (NodeRef a)
+createNodeIn created_in  k = do
+  modify (\s -> s & info.debug.nodesCreated %~ (+ 1))
+  N.create created_in k
+
 createNode :: Eq a => Kind a -> StateIO (NodeRef a)
-createNode = lift . N.createNode
+createNode k = getCurrScope >>= \s -> createNodeIn s k
+
+createNodeTop :: Eq a => Kind a -> StateIO (NodeRef a)
+createNodeTop = createNodeIn Top
 
 getStbNum:: StateIO Int
 getStbNum = do s <- get; return $ s^.info.stbNum
+
+getCurrScope :: StateIO Scope
+getCurrScope = do s <- get; return $ s^.info.currScope
 
 amStabilizing :: StateIO Bool
 amStabilizing = do
@@ -64,9 +76,9 @@ becameUnnecessary nf = do
 -- https://github.com/janestreet/incremental/blob/master/src/state.ml#L357
 invalidateNode :: Maybe PackedNode -> PackedNode -> StateIO Bool
 invalidateNode _ pn@(PackedNode ref) = do
-  n    <- readIORefT (getRef ref)
+  n    <- readNodeRef ref
   -- TODO: confusing ... flag = true if n has invalid children
-  flag <- (lift . N.shouldBeInvalidated) n
+  flag <- N.shouldBeInvalidated n
   if not (N.isValid n || flag)
      then return False
      else do
@@ -79,7 +91,7 @@ invalidateNode _ pn@(PackedNode ref) = do
        removeChildren ref
        -- TODO: update height
        -- TODO: scope?
-       lift $ N.setKind ref Invalid
+       N.setKind ref Invalid
        -- remove invalid nodes from the recompute heap
        removeFromRecHeap pn
        return True
@@ -91,10 +103,10 @@ propagateInvalidity ref = dfsParentWithoutRepeat ref invalidateNode
 addParent :: (Eq a, Eq b) => NodeRef a -> NodeRef b -> StateIO ()
 addParent child_ref par_ref = do
   putStrLnT $ "--* State.addParent from child " ++ show child_ref ++ " to " ++ show par_ref
-  child  <- readIORefT (getRef child_ref)
+  child  <- readNodeRef child_ref
   let was_necessary = N.isNecessary child
   -- when (not $ N.isNecessary parent) (error "We only add necessary parent")
-  lift $ N.addParent child_ref par_ref
+  N.addParent child_ref par_ref
     -- if we add an invalid node to a parent => invalidate all the parents
   when (not $ N.isValid child) $ propagateInvalidity child_ref
   when (not was_necessary)     $ becameNecessary child_ref
@@ -114,8 +126,9 @@ becameNecessary parent@(Ref pref _) = do
 removeFromRecHeap :: PackedNode -> StateIO ()
 removeFromRecHeap pn = modify (\s -> s & recHeap %~ (Set.delete pn))
 
-changeChild :: (Eq a, Eq b) => NodeRef a -> NodeRef b -> NodeRef b -> StateIO ()
-changeChild parent old_child new_child = do
+changeChild :: (Eq a, Eq b) => NodeRef a -> Maybe (NodeRef b) -> NodeRef b -> StateIO ()
+changeChild parent Nothing          new_child = addParent parent new_child
+changeChild parent (Just old_child) new_child = do
   if old_child == new_child
      then return ()
      else do
@@ -130,13 +143,13 @@ recompute (PackedNode nf) = do
   when verbose (putStrLnT $ "--* State.recompute node " ++ show nf)
   modify (\s -> s & info.debug.nodesRecomputed.byDefault %~ (+ 1))
   N.updateRecomputedAt nf
-  n0 <- readIORefT (getRef nf)
+  n0 <- readNodeRef nf
   case n0^.kind of
     Const x                -> maybeChangeValue nf x
     Freeze _ cref f        -> do
       cv <- valueExn cref
       when (f cv) $ do removeChildren nf
-                       lift $ N.setKind nf (Const cv)
+                       N.setKind nf (Const cv)
                        if (N.isNecessary n0)
                           -- original : then N.setHeight curr 0
                           -- because as it could not have any children, the height = 0
@@ -150,15 +163,23 @@ recompute (PackedNode nf) = do
     Map2 f b c             -> app2 f b c >>= maybeChangeValue nf
     Map3 f b c d           -> app3 f b c d >>= maybeChangeValue nf
     Map4 f b c d e         -> app4 f b c d e >>= maybeChangeValue nf
-    where maybeChangeValue :: Eq a => NodeRef a -> a -> StateIO ()
-          maybeChangeValue ref new_v = do
-            -- TODO: Cutoff.should_cutoff
-            old_v <- N.getNodeValue ref
-            when (isNothing old_v || not (new_v == fromJust old_v)) $ do
-              N.setNodeValue ref (Just new_v)
-              N.updateChangedAt ref
-              modify (\s -> s & info.debug.nodesChanged %~ (+ 1))
-              -- TODO: .....
+    Bind f l r nodes_r     -> do
+      lhs_node <- readNodeRef l
+      new_rhs  <- runWithScope (Bound nf) (\() -> f (N.valueExn lhs_node))
+      modifyNodeRef nf (\n -> n & kind %~ (\k -> k{ nodesCreatedInScope = []
+                                                  , rhs = Just new_rhs }))
+      changeChild nf r new_rhs
+      when (isJust r) (invalidateNodesCreatedOnRHS nodes_r)
+
+maybeChangeValue :: Eq a => NodeRef a -> a -> StateIO ()
+maybeChangeValue ref new_v = do
+  -- TODO: Cutoff.should_cutoff
+  old_v <- N.getNodeValue ref
+  when (isNothing old_v || not (new_v == fromJust old_v)) $ do
+    N.setNodeValue ref (Just new_v)
+    N.updateChangedAt ref
+    modify (\s -> s & info.debug.nodesChanged %~ (+ 1))
+    -- TODO: .....
 
 recomputeEverythingThatIsNecessary :: StateIO ()
 recomputeEverythingThatIsNecessary = do
@@ -197,6 +218,24 @@ recomputeEverythingThatIsNecessary = do
 addToRecomputeHeap :: PackedNode -> StateIO ()
 addToRecomputeHeap pn = do
   modify (\s -> s & recHeap %~ (Set.insert pn))
+
+invalidateNodesCreatedOnRHS :: [PackedNode] -> StateIO ()
+invalidateNodesCreatedOnRHS = foldM_ (\() (PackedNode nf) -> propagateInvalidity nf) ()
+
+-- TODO: https://github.com/janestreet/incremental/blob/master/src/state.ml#L532
+runWithScope :: Eq a => Scope -> (() -> StateIO (NodeRef a)) -> StateIO (NodeRef a)
+runWithScope scope f = do
+  modify (\s -> s & info.currScope .~ scope)
+  f ()
+
+-- runWithScope :: (Bound nf) (\() ->f (valueExn lhs_node))
+
+copyChild :: Eq a => NodeRef a -> NodeRef a -> StateIO ()
+copyChild pref cref = do
+  child <- readNodeRef cref
+  if (N.isValid child)
+     then maybeChangeValue pref (N.valueExn child)
+     else propagateInvalidity pref
 
 ---------------------------------- Observers ----------------------------------
 unlinkDisallowedObs :: StateIO ()
@@ -255,12 +294,13 @@ addNewObservers = do
 ---------------------------------- Var ----------------------------------
 -- Create a new node with kind = Variable. Return a proxy to the node
 -- This will not add the node to the DAG
-createVar :: Eq a => a -> StateIO (Var a)
-createVar v0 = do
-  --TODO scope
+createVar :: Eq a => Bool -> a -> StateIO (Var a)
+createVar use_current_scope v = do
   stbnum <- getStbNum
-  let var = Variable v0 Nothing stbnum
-  watched <- createNode var
+  curr <- getCurrScope
+  let var = Variable v Nothing stbnum
+      scope = if use_current_scope then curr else Top
+  watched <- createNodeIn scope var
   when verbose (putStrLnT $ "--* New Var created " ++ show watched)
   return (Var watched)
 
@@ -290,6 +330,13 @@ setVar v0@(Var (Ref ref _)) new_v = do
       when (isNothing $ valueSetDuringStb old_k)
            (modify (\s -> s & varSetDuringStb %~ (PackVar v0 :)))
       modifyIORefT ref (\n -> n & kind .~ old_k{valueSetDuringStb = Just new_v})
+
+---------------------------------- Bind ---------------------------------------
+bind :: (Eq a, Eq b) => (NodeRef a) -> (a -> StateIO (NodeRef b)) -> StateIO (NodeRef b)
+bind lhs_node f = do
+  bind_node <- createNodeTop (Bind f lhs_node Nothing [])
+  modifyNodeRef bind_node (\n -> n & createdIn .~ (Bound bind_node))
+  return bind_node
 
 ---------------------------------- Stabilization ------------------------------
 stabilize :: StateIO ()
@@ -386,8 +433,8 @@ printParents var = do
 
 testMap :: StateIO ()
 testMap = do
-  v1    <- createVar 5
-  v2    <- createNode (Map (+ 6) (watch v1))
+  v1    <- createVar False 5
+  v2    <- createNodeTop (Map (+ 6) (watch v1))
   -- obs   <- createObserver v2
   putStrLnT "All nodes are added"
 
@@ -402,9 +449,9 @@ testMap = do
 
 testMap2 :: StateIO ()
 testMap2 = do
-  v1 <- createVar 5
-  v2 <- createVar 10
-  n  <- createNode (Map2 (+) (watch v1) (watch v2))
+  v1 <- createVar False 5
+  v2 <- createVar False 10
+  n  <- createNodeTop (Map2 (+) (watch v1) (watch v2))
   ob <- createObserver n
   putStrLnT "All nodes are added"
 
@@ -417,6 +464,23 @@ testMap2 = do
   stabilize
   printObs ob
   putStrLnT "After second stabilization"
+
+if_ :: Eq a
+    => NodeRef Bool -> NodeRef a -> NodeRef a -> StateIO (NodeRef a)
+if_ a b c = bind a (\x -> if x then return b else return c)
+
+testBind1 :: StateIO ()
+testBind1 = do
+  flag  <- createVar False True
+  then_ <- createVar True 5
+  else_ <- createVar True 6
+  try_if <- if_ (watch flag) (watch then_) (watch else_)
+  ob    <- createObserver try_if
+
+  stabilize
+  printObs ob
+
+
 
 runTest :: StateIO a -> IO ()
 runTest action = runStateT action initState >> return ()

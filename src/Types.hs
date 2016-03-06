@@ -34,17 +34,25 @@ initHeight = 0
 -- and doesn't change thereafter.
 
 data Kind a =
-    Const a
-  | Freeze { mainNode       :: NodeRef a
-           , childNode      :: NodeRef a
-           , onlyFreezeWhen :: (a -> Bool)
-           }
+    forall b. Eq b => Bind {
+        func                :: b -> StateIO (NodeRef a)
+      , lhs                 :: NodeRef b
+      , rhs                 :: Maybe (NodeRef a)
+      , nodesCreatedInScope :: [PackedNode]
+      }
+  | Const a
+  | Freeze {
+        mainNode       :: NodeRef a
+      , childNode      :: NodeRef a
+      , onlyFreezeWhen :: (a -> Bool)
+      }
   | Invalid
   | Uninitialized
-  | Variable { mvalue            :: a
-             , valueSetDuringStb :: !(Maybe a)
-             , setAt             :: StabilizationNum
-             }
+  | Variable {
+        mvalue            :: a
+      , valueSetDuringStb :: !(Maybe a)
+      , setAt             :: StabilizationNum
+      }
   | forall b. Eq b => Map (b -> a) (NodeRef b)
   | forall b c. (Eq b, Eq c) => Map2 (b -> c -> a) (NodeRef b) (NodeRef c)
   | forall b c d. (Eq b, Eq c, Eq d) =>
@@ -53,6 +61,7 @@ data Kind a =
       Map4 (b -> c -> d -> e -> a) (NodeRef b) (NodeRef c) (NodeRef d) (NodeRef e)
 
 instance Show (Kind a) where
+  show (Bind _ _ _ _)   = "Bind"
   show (Const _)        = "Const"
   show (Freeze _ _ _)   = "Freeze"
   show Invalid          = "Invalid"
@@ -101,14 +110,15 @@ getRef :: NodeRef a -> IORef (Node a)
 getRef (Ref ref _) = ref
 
 data Node a = Node {
-    _kind  :: Kind a
-  , _value :: ValueInfo a
-  , _edges :: Edges
+    _kind      :: Kind a
+  , _value     :: ValueInfo a
+  , _edges     :: Edges
+  , _createdIn :: Scope
   -- , _temp  :: Temp
   }
 
 initNode :: Node a
-initNode = Node initKind initValueInfo initEdges
+initNode = Node initKind initValueInfo initEdges initScope
 
 data Edges = Edges {
     _parents   :: Set PackedNode
@@ -131,6 +141,13 @@ data ValueInfo a = ValueInfo {
   , _recomputedAt :: StabilizationNum
   , _changedAt    :: StabilizationNum
   }
+
+instance Show a => Show (ValueInfo a) where
+  show (ValueInfo v oldv rec change) =
+    "value = " ++ show v ++ " " ++
+    "oldValue = " ++ show oldv ++ " " ++
+    "recomputedAt = " ++ show rec ++ " " ++
+    "changedAt = " ++ show change
 
 -- When the node is initialized, the value is **not** computed, thus
 -- bose 'recomputedAt' and 'changedAt' is set to none
@@ -158,8 +175,15 @@ instance Show (Var a) where
 
 data PackedVar = forall a. Eq a => PackVar !(Var a)
 
+---------------------------------- Bind --------------------------------------
+
+
 ---------------------------------- Scope --------------------------------------
-data Scope = Scope
+data Scope = Top
+           | forall a. Eq a => Bound (NodeRef a)
+
+initScope :: Scope
+initScope = Top
 
 ---------------------------------- Observers ----------------------------------
 data ObsState = Created | InUse | Disallowed | Unlinked
@@ -225,13 +249,14 @@ initStatus :: Status
 initStatus= Stabilizing
 
 data StatusInfo = StatusInfo {
-    _status :: Status
-  , _stbNum :: StabilizationNum
-  , _debug  :: DebugInfo
+    _status    :: Status
+  , _stbNum    :: StabilizationNum
+  , _currScope :: Scope
+  , _debug     :: DebugInfo
   }
 
 initStatusInfo :: StatusInfo
-initStatusInfo = StatusInfo initStatus initStbNum initDebugInfo
+initStatusInfo = StatusInfo initStatus initStbNum initScope initDebugInfo
 
 -- | The actual information of observers are stored in [_all]
 -- In either [Node._obsOnNode] ore here, we store the [ObsID]
