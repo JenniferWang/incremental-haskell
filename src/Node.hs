@@ -31,15 +31,18 @@ create create_in k = do
 isValid :: (Eq a) => Node a -> Bool
 isValid n = case (n^.kind) of Invalid -> False
                               _       -> True
-isStale :: (Eq a) => Node a -> Bool
-isStale node =
-  let rcp = node^.value.recomputedAt in
-  case node^.kind of
-    Uninitialized       -> error "[Node.isStale] The node is uninitialized"
-    Invalid             -> False
-    Variable _ _ set_at -> set_at > rcp
-    -- A const node is stale only at initialization.
-    _                   -> Stb.isNone rcp
+
+-- | pre: [par_ref] is a parent of [child]
+edgeIsStale :: (Eq a) => Node a -> PackedNode -> StateIO Bool
+edgeIsStale child (PackedNode par_ref) = do
+  parent <- readNodeRef par_ref
+  let p_recomp = parent^.value.recomputedAt
+  return $ (Stb.isNone p_recomp) ||
+    (child^.value.changedAt) > (parent^.value.recomputedAt)
+
+isStaleWithRespectToAChild :: (Eq a) => Node a -> StateIO Bool
+isStaleWithRespectToAChild node = and <$>
+  sequence (iteriChildren node (\_ pn -> edgeIsStale node pn))
 
 -- | Check whether some IORef Node is the parent of current node
 isParent :: (Eq a) => PackedNode -> Node a -> Bool
@@ -138,6 +141,19 @@ getParentsP (PackedNode noderef) = do
   return $ getParents n
 
 isStaleP :: (Eq a) => NodeRef a -> StateIO Bool
-isStaleP (Ref ref _) = readIORefT ref >>= return . isStale
-
+isStaleP ref = do
+  node <- readNodeRef ref
+  let rcp = node^.value.recomputedAt
+  case node^.kind of
+    Uninitialized       -> error "[Node.isStale] The node is uninitialized"
+    Invalid             -> return False
+    Variable _ _ set_at -> return $ set_at > rcp
+    -- A const node is stale only at initialization.
+    Const _             -> return $ Stb.isNone rcp
+    Map _ _             -> isStaleWithRespectToAChild node
+    Map2 _ _ _          -> isStaleWithRespectToAChild node
+    Map3 _ _ _ _        -> isStaleWithRespectToAChild node
+    Map4 _ _ _ _ _      -> isStaleWithRespectToAChild node
+    Bind _ _ _ _        -> isStaleWithRespectToAChild node
+    _                   -> return $ Stb.isNone rcp
 

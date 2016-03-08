@@ -6,7 +6,7 @@ import Control.Monad (when, foldM, foldM_)
 import Data.Traversable (mapM)
 import Data.IORef
 import Data.Set (Set)
-import Data.Maybe(isNothing, fromJust, isJust)
+import Data.Maybe(isNothing, fromJust, isJust, catMaybes)
 import qualified Data.Set as Set
 import qualified Data.Map as Map
 import Data.Unique
@@ -138,14 +138,14 @@ changeChild parent (Just old_child) new_child = do
        checkIfUnnecessary old_child
 
 -- Recompute the value of current node
-recompute :: PackedNode -> StateIO ()
+recompute :: PackedNode -> StateIO (Maybe PackedNode)
 recompute (PackedNode nf) = do
   when verbose (putStrLnT $ "--* State.recompute node " ++ show nf)
   modify (\s -> s & info.debug.nodesRecomputed.byDefault %~ (+ 1))
   N.updateRecomputedAt nf
   n0 <- readNodeRef nf
   case n0^.kind of
-    Const x                -> maybeChangeValue nf x
+    Const x                -> maybeChangeValue nf x >> return Nothing
     Freeze _ cref f        -> do
       cv <- valueExn cref
       when (f cv) $ do removeChildren nf
@@ -155,14 +155,14 @@ recompute (PackedNode nf) = do
                           -- because as it could not have any children, the height = 0
                           then return ()
                           else becameUnnecessary nf
-      maybeChangeValue nf cv
+      maybeChangeValue nf cv >> return Nothing
     Invalid                -> error "Invalid node should not be in the recompute heap"
     Uninitialized          -> error "Current node is uninitialized"
-    Variable v0 _ _        -> maybeChangeValue nf v0
-    Map  f b               -> app1 f b >>= maybeChangeValue nf
-    Map2 f b c             -> app2 f b c >>= maybeChangeValue nf
-    Map3 f b c d           -> app3 f b c d >>= maybeChangeValue nf
-    Map4 f b c d e         -> app4 f b c d e >>= maybeChangeValue nf
+    Variable v0 _ _        -> maybeChangeValue nf v0 >> return Nothing
+    Map  f b               -> app1 f b >>= maybeChangeValue nf >> return Nothing
+    Map2 f b c             -> app2 f b c >>= maybeChangeValue nf >> return Nothing
+    Map3 f b c d           -> app3 f b c d >>= maybeChangeValue nf >> return Nothing
+    Map4 f b c d e         -> app4 f b c d e >>= maybeChangeValue nf >> return Nothing
     Bind f l r nodes_r     -> do
       lhs_node <- readNodeRef l
       new_rhs  <- runWithScope (Bound nf) (\() -> f (N.valueExn lhs_node))
@@ -170,15 +170,25 @@ recompute (PackedNode nf) = do
                                                   , rhs = Just new_rhs }))
       changeChild nf r new_rhs
       when (isJust r) (invalidateNodesCreatedOnRHS nodes_r)
+      return $ Just (pack new_rhs)
 
 maybeChangeValue :: Eq a => NodeRef a -> a -> StateIO ()
 maybeChangeValue ref new_v = do
   -- TODO: Cutoff.should_cutoff
-  old_v <- N.getNodeValue ref
+  node  <- readNodeRef ref
+  let old_v = node^.value.v
   when (isNothing old_v || not (new_v == fromJust old_v)) $ do
     N.setNodeValue ref (Just new_v)
     N.updateChangedAt ref
     modify (\s -> s & info.debug.nodesChanged %~ (+ 1))
+    case (node^.createdIn) of
+      Top              -> return ()
+      (Bound bind_ref) -> do
+        is_root_stale <- N.isStaleP bind_ref
+        if (N.hasChild node (pack bind_ref) && is_root_stale)
+           then copyChild bind_ref ref
+           else return ()
+
     -- TODO: .....
 
 recomputeEverythingThatIsNecessary :: StateIO ()
@@ -190,8 +200,7 @@ recomputeEverythingThatIsNecessary = do
   is_cyclic <- foldM go False roots
   when (is_cyclic) $ error "Cycle detected! The graph is not DAG"
   -- topological sort: dfs + list
-  (stack, _) <- topo roots [] Set.empty
-  mapM_ recompute stack
+  rec roots
   -- clear the recompute heap
   modify (\s -> s & recHeap .~ Set.empty)
     where
@@ -213,6 +222,13 @@ recomputeEverythingThatIsNecessary = do
 
       go True  _    = return True
       go False root = cyclic Set.empty root
+
+      rec :: [PackedNode] -> StateIO [PackedNode]
+      rec []       = return []
+      rec root_set = do
+        (stack, _) <- topo root_set [] Set.empty
+        new_roots  <- mapM recompute stack
+        rec (catMaybes new_roots)
 
 -- TODO: marked as inline
 addToRecomputeHeap :: PackedNode -> StateIO ()
