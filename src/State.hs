@@ -14,10 +14,11 @@ import Prelude hiding (all)
 
 import Types
 import Utils
-import qualified Node     as N
-import qualified Observer as O
-import qualified Var      as V
-import qualified Kind     as K
+import qualified Node      as N
+import qualified Observer  as O
+import qualified Var       as V
+import qualified Kind      as K
+import qualified ArrayFold as AF
 
 ---------------------------------- Node ----------------------------------
 createNodeIn :: Eq a => Scope -> Kind a -> StateIO (NodeRef a)
@@ -134,6 +135,7 @@ recompute (PackedNode nf) = do
   N.updateRecomputedAt nf
   n0 <- readNodeRef nf
   case n0^.kind of
+    ArrayFold init f array -> AF.compute f init array >>= maybeChangeValue nf
     Const x                -> maybeChangeValue nf x
     Freeze _ cref f        -> do
       cv <- valueExn cref

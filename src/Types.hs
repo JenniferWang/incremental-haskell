@@ -34,7 +34,12 @@ initHeight = 0
 -- and doesn't change thereafter.
 
 data Kind a =
-    forall b. Eq b => Bind {
+    forall b. Eq b => ArrayFold {
+        initAcc       :: a
+      , foldFunc      :: a -> b -> a
+      , childrenArray :: [NodeRef b]
+      }
+  | forall b. Eq b => Bind {
         func                :: b -> StateIO (NodeRef a)
       , lhs                 :: NodeRef b
       , rhs                 :: Maybe (NodeRef a)
@@ -61,16 +66,17 @@ data Kind a =
       Map4 (b -> c -> d -> e -> a) (NodeRef b) (NodeRef c) (NodeRef d) (NodeRef e)
 
 instance Show (Kind a) where
-  show (Bind _ _ _ _)   = "Bind"
-  show (Const _)        = "Const"
-  show (Freeze _ _ _)   = "Freeze"
-  show Invalid          = "Invalid"
-  show (Map _ _)        = "Map"
-  show (Map2 _ _ _)     = "Map2"
-  show (Map3 _ _ _ _)   = "Map3"
-  show (Map4 _ _ _ _ _) = "Map4"
-  show Uninitialized    = "Uninitialized"
-  show (Variable _ _ _) = "Var"
+  show (ArrayFold _ _ _) = "Array_fold"
+  show (Bind _ _ _ _)    = "Bind"
+  show (Const _)         = "Const"
+  show (Freeze _ _ _)    = "Freeze"
+  show Invalid           = "Invalid"
+  show (Map _ _)         = "Map"
+  show (Map2 _ _ _)      = "Map2"
+  show (Map3 _ _ _ _)    = "Map3"
+  show (Map4 _ _ _ _ _)  = "Map4"
+  show Uninitialized     = "Uninitialized"
+  show (Variable _ _ _)  = "Var"
 
 initKind :: Kind a
 initKind = Uninitialized

@@ -76,7 +76,8 @@ hasParent n parent = or $ iteriParents n (\_ ref -> ref == parent)
 
 shouldBeInvalidated :: (Eq a) => Node a -> StateIO Bool
 shouldBeInvalidated n =
-  case (n^.kind) of Map  _ _        -> hasInvalidChild n
+  case (n^.kind) of ArrayFold _ _ _ -> hasInvalidChild n
+                    Map  _ _        -> hasInvalidChild n
                     Map2 _ _ _      -> hasInvalidChild n
                     Map3 _ _ _ _    -> hasInvalidChild n
                     Map4 _ _ _ _ _  -> hasInvalidChild n
@@ -145,6 +146,7 @@ isStaleP ref = do
   node <- readNodeRef ref
   let rcp = node^.value.recomputedAt
   case node^.kind of
+    ArrayFold _ _ _     -> isStaleWithRespectToAChild node
     Uninitialized       -> error "[Node.isStale] The node is uninitialized"
     Invalid             -> return False
     Variable _ _ set_at -> return $ set_at > rcp
