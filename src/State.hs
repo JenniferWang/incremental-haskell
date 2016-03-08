@@ -6,7 +6,7 @@ import Control.Monad (when, foldM, foldM_)
 import Data.Traversable (mapM)
 import Data.IORef
 import Data.Set (Set)
-import Data.Maybe(isNothing, fromJust, isJust, catMaybes)
+import Data.Maybe(isNothing, fromJust, isJust)
 import qualified Data.Set as Set
 import qualified Data.Map as Map
 import Data.Unique
@@ -102,7 +102,7 @@ propagateInvalidity ref = dfsParentWithoutRepeat ref invalidateNode
 
 addParent :: (Eq a, Eq b) => NodeRef a -> NodeRef b -> StateIO ()
 addParent child_ref par_ref = do
-  putStrLnT $ "--* State.addParent from child " ++ show child_ref ++ " to " ++ show par_ref
+  when verbose (putStrLnT $ "--* State.addParent from child " ++ show child_ref ++ " to " ++ show par_ref)
   child  <- readNodeRef child_ref
   let was_necessary = N.isNecessary child
   -- when (not $ N.isNecessary parent) (error "We only add necessary parent")
@@ -115,7 +115,7 @@ addParent child_ref par_ref = do
 becameNecessary :: Eq a => NodeRef a -> StateIO ()
 becameNecessary parent@(Ref pref _) = do
   -- TODO: add fail conditions
-  putStrLnT $ "--* State.becameNecessary " ++ show parent
+  when verbose (putStrLnT $ "--* State.becameNecessary " ++ show parent)
   modify (\s -> s & info.debug.nodesBecame.necessary %~ (+ 1))
   par_node <- readIORefT pref
   sequence_ $
@@ -126,26 +126,15 @@ becameNecessary parent@(Ref pref _) = do
 removeFromRecHeap :: PackedNode -> StateIO ()
 removeFromRecHeap pn = modify (\s -> s & recHeap %~ (Set.delete pn))
 
-changeChild :: (Eq a, Eq b) => NodeRef a -> Maybe (NodeRef b) -> NodeRef b -> StateIO ()
-changeChild parent Nothing          new_child = addParent parent new_child
-changeChild parent (Just old_child) new_child = do
-  if old_child == new_child
-     then return ()
-     else do
-       lift $ N.removeParent old_child parent
-       -- TODO: force necessary?
-       addParent new_child parent
-       checkIfUnnecessary old_child
-
 -- Recompute the value of current node
-recompute :: PackedNode -> StateIO (Maybe PackedNode)
+recompute :: PackedNode -> StateIO ()
 recompute (PackedNode nf) = do
   when verbose (putStrLnT $ "--* State.recompute node " ++ show nf)
   modify (\s -> s & info.debug.nodesRecomputed.byDefault %~ (+ 1))
   N.updateRecomputedAt nf
   n0 <- readNodeRef nf
   case n0^.kind of
-    Const x                -> maybeChangeValue nf x >> return Nothing
+    Const x                -> maybeChangeValue nf x
     Freeze _ cref f        -> do
       cv <- valueExn cref
       when (f cv) $ do removeChildren nf
@@ -155,22 +144,47 @@ recompute (PackedNode nf) = do
                           -- because as it could not have any children, the height = 0
                           then return ()
                           else becameUnnecessary nf
-      maybeChangeValue nf cv >> return Nothing
+      maybeChangeValue nf cv
+
     Invalid                -> error "Invalid node should not be in the recompute heap"
     Uninitialized          -> error "Current node is uninitialized"
-    Variable v0 _ _        -> maybeChangeValue nf v0 >> return Nothing
-    Map  f b               -> app1 f b >>= maybeChangeValue nf >> return Nothing
-    Map2 f b c             -> app2 f b c >>= maybeChangeValue nf >> return Nothing
-    Map3 f b c d           -> app3 f b c d >>= maybeChangeValue nf >> return Nothing
-    Map4 f b c d e         -> app4 f b c d e >>= maybeChangeValue nf >> return Nothing
+    Variable v0 _ _        -> maybeChangeValue nf v0
+    Map  f b               -> app1 f b >>= maybeChangeValue nf
+    Map2 f b c             -> app2 f b c >>= maybeChangeValue nf
+    Map3 f b c d           -> app3 f b c d >>= maybeChangeValue nf
+    Map4 f b c d e         -> app4 f b c d e >>= maybeChangeValue nf
+    -- Bind node is tricky.
+    --   a. [rhs] is Nothing, it should first compute [rhs] and
+    --     then add the edge [rhs] -> bind node [nf]
+    --   b. [rhs] is Just, there could be three cases which incurs the
+    --     recompute of the bind node.
+    --     1. Some node created OUTSIDE changes => don't really need to
+    --        invalidate nodes CREATED in rhs, a.k.a. nodes_r
+    --     2. The node on lhs changes => need to invalidate all the nodes
+    --        CREATED in rhs.
+    --     3. Both of the two cases occur
+
     Bind f l r nodes_r     -> do
       lhs_node <- readNodeRef l
       new_rhs  <- runWithScope (Bound nf) (\() -> f (N.valueExn lhs_node))
       modifyNodeRef nf (\n -> n & kind %~ (\k -> k{ nodesCreatedInScope = []
                                                   , rhs = Just new_rhs }))
-      changeChild nf r new_rhs
-      when (isJust r) (invalidateNodesCreatedOnRHS nodes_r)
-      return $ Just (pack new_rhs)
+      update nf r new_rhs
+      copyChild nf new_rhs
+        where
+        update parent Nothing new_child = recomputeWithRoots [pack new_child]
+                                       >> addParent new_child parent
+        update parent (Just old_child) new_child = do
+          if old_child == new_child
+             then return ()
+             else do
+               when verbose (putStrLnT $ "--* State.remove parent from child " ++ show old_child
+                            ++ " to " ++ show parent)
+               lift $ N.removeParent old_child parent
+               invalidateNodesCreatedOnRHS nodes_r
+               recomputeWithRoots [pack new_child]
+               addParent new_child parent
+               checkIfUnnecessary old_child
 
 maybeChangeValue :: Eq a => NodeRef a -> a -> StateIO ()
 maybeChangeValue ref new_v = do
@@ -181,15 +195,19 @@ maybeChangeValue ref new_v = do
     N.setNodeValue ref (Just new_v)
     N.updateChangedAt ref
     modify (\s -> s & info.debug.nodesChanged %~ (+ 1))
-    case (node^.createdIn) of
-      Top              -> return ()
-      (Bound bind_ref) -> do
-        is_root_stale <- N.isStaleP bind_ref
-        if (N.hasChild node (pack bind_ref) && is_root_stale)
-           then copyChild bind_ref ref
-           else return ()
 
-    -- TODO: .....
+recomputeWithRoots :: [PackedNode] -> StateIO ()
+recomputeWithRoots roots = do
+  (stack, _) <- topo roots [] Set.empty
+  mapM_ recompute stack
+  where
+    topo []     stack seen = return (stack, seen)
+    topo (x:xs) stack seen
+      | x `Set.member` seen = topo xs stack seen
+      | otherwise = do
+        xs' <- N.getParentsP x
+        (stack', seen') <- topo xs' stack (Set.insert x seen)
+        topo xs (x:stack') seen'
 
 recomputeEverythingThatIsNecessary :: StateIO ()
 recomputeEverythingThatIsNecessary = do
@@ -200,35 +218,20 @@ recomputeEverythingThatIsNecessary = do
   is_cyclic <- foldM go False roots
   when (is_cyclic) $ error "Cycle detected! The graph is not DAG"
   -- topological sort: dfs + list
-  rec roots
+  recomputeWithRoots roots
   -- clear the recompute heap
   modify (\s -> s & recHeap .~ Set.empty)
-    where
-      topo []     stack seen = return (stack, seen)
-      topo (x:xs) stack seen
-        | x `Set.member` seen = topo xs stack seen
-        | otherwise = do
-            xs' <- N.getParentsP x
-            (stack', seen') <- topo xs' stack (Set.insert x seen)
-            topo xs (x:stack') seen'
+  where
+    cyclic path x
+      | x `Set.member` path = return True
+      | otherwise = do
+        parents0 <- N.getParentsP x
+        if parents0 == []
+          then return False
+          else or <$> (mapM (cyclic (Set.insert x path)) parents0)
 
-      cyclic path x
-        | x `Set.member` path = return True
-        | otherwise = do
-            parents0 <- N.getParentsP x
-            if parents0 == []
-               then return False
-               else or <$> (mapM (cyclic (Set.insert x path)) parents0)
-
-      go True  _    = return True
-      go False root = cyclic Set.empty root
-
-      rec :: [PackedNode] -> StateIO [PackedNode]
-      rec []       = return []
-      rec root_set = do
-        (stack, _) <- topo root_set [] Set.empty
-        new_roots  <- mapM recompute stack
-        rec (catMaybes new_roots)
+    go True  _    = return True
+    go False root = cyclic Set.empty root
 
 -- TODO: marked as inline
 addToRecomputeHeap :: PackedNode -> StateIO ()
@@ -243,8 +246,6 @@ runWithScope :: Eq a => Scope -> (() -> StateIO (NodeRef a)) -> StateIO (NodeRef
 runWithScope scope f = do
   modify (\s -> s & info.currScope .~ scope)
   f ()
-
--- runWithScope :: (Bound nf) (\() ->f (valueExn lhs_node))
 
 copyChild :: Eq a => NodeRef a -> NodeRef a -> StateIO ()
 copyChild pref cref = do
@@ -289,7 +290,6 @@ createObserver nf = do
 
 addNewObservers :: StateIO ()
 addNewObservers = do
-  putStrLnT "--* adding new observers to global state"
   env <- get
   mapM_ add0 $ env^.observer.new
   modify (\s -> s & observer.new .~ [])
@@ -326,9 +326,9 @@ setVarWhileNotStabilizing (Var nf@(Ref ref _)) new_v = do
   watched <- readIORefT ref
   stbnum  <- getStbNum
   let old_k = watched^.kind
-      new_k = old_k{mvalue = new_v}
+      new_k = old_k{ mvalue = new_v }
   if (setAt old_k < stbnum)
-     then do modifyIORefT ref (\n -> n & kind .~ new_k{setAt = stbnum})
+     then do modifyIORefT ref (\n -> n & kind .~ new_k{ setAt = stbnum })
              when (N.isNecessary watched) (addToRecomputeHeap $ pack nf)
              -- when (N.isNecessary watched && not_in_rec_heap) (add to heap)
      else modifyIORefT ref (\n -> n & kind .~ new_k)
@@ -431,9 +431,6 @@ app3 f b c d = valueExn b >>= \bv -> app2 (f bv) c d
 app4 f b c d e = valueExn b >>= \bv -> app3 (f bv) c d e
 
 ---------------------------------- Toy Test --------------------------------------
-verbose :: Bool
-verbose = True
-
 printObs :: (Show a, Eq a) => Observer a -> StateIO ()
 printObs obs = O.obsValueExn obs
            >>= \x -> putStrLnT $ show obs ++ " = " ++ show x
@@ -487,16 +484,31 @@ if_ a b c = bind a (\x -> if x then return b else return c)
 
 testBind1 :: StateIO ()
 testBind1 = do
-  flag  <- createVar False True
-  then_ <- createVar True 5
-  else_ <- createVar True 6
+  flag   <- createVar False True
+  then_  <- createVar True 5
+  else_  <- createVar True 6
   try_if <- if_ (watch flag) (watch then_) (watch else_)
-  ob    <- createObserver try_if
+  ob     <- createObserver try_if
 
   stabilize
   printObs ob
 
+  setVar then_ 7
+  stabilize
+  printObs ob
 
+  setVar flag False
+  stabilize
+  printObs ob
+
+  setVar flag True
+  setVar then_ 8
+  setVar else_ 9
+  stabilize
+  printObs ob
+
+verbose :: Bool
+verbose = True
 
 runTest :: StateIO a -> IO ()
 runTest action = runStateT action initState >> return ()
