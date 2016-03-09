@@ -5,7 +5,7 @@ import Control.Monad.Trans.State.Strict
 import Control.Monad.Trans.Class (lift)
 import Data.Unique
 import Prelude hiding (id)
-import Data.Maybe(fromJust, isNothing, catMaybes)
+import Data.Maybe(fromJust, isNothing)
 import qualified Data.Set as Set
 
 import Lens.Simple
@@ -21,8 +21,8 @@ import Utils
 create :: (Eq a) => Scope -> Kind a -> StateIO (NodeRef a)
 create create_in k = do
   i   <- lift $ newUnique
-  ref <- lift $ newIORef (initNode{ _kind = k, _createdIn = create_in })
-  let node_ref = Ref ref i
+  ref <- lift $ newIORef (initNode{ _kind = k })
+  let node_ref = Ref ref i create_in
   Scope.addNode create_in node_ref
   return node_ref
 
@@ -96,7 +96,7 @@ addParent ref parent =
 
 -- | 'removeParent' does not check whether [parent] is a true parent of [child]
 removeParent :: (Eq a, Eq b) => NodeRef a -> NodeRef b -> IO ()
-removeParent (Ref cref _) parent = do
+removeParent (Ref cref _ _) parent = do
   c <- readIORef cref
   writeIORef cref (c & edges.parents %~ (Set.delete $ pack parent))
 
@@ -119,38 +119,35 @@ valueExn n
     where val = n^.value.v
 
 setNodeValue :: Eq a => NodeRef a -> Maybe a -> StateIO ()
-setNodeValue (Ref ref _) v0 = modifyIORefT ref
-                                (\n -> n & value.v .~ v0)
+setNodeValue ref v0 = modifyNodeRef ref (\n -> n & value.v .~ v0)
 
 getNodeValue :: Eq a => NodeRef a -> StateIO (Maybe a)
-getNodeValue (Ref ref _) = readIORefT ref >>= \n -> return (n^.value.v)
+getNodeValue ref = readNodeRef ref >>= \n -> return (n^.value.v)
 
 updateChangedAt :: Eq a => NodeRef a -> StateIO ()
-updateChangedAt (Ref ref _) = do
+updateChangedAt ref = do
   env <- get
-  modifyIORefT ref (\n -> n & value.changedAt .~ (env^.info.stbNum))
+  modifyNodeRef ref (\n -> n & value.changedAt .~ (env^.info.stbNum))
 
 updateRecomputedAt :: Eq a => NodeRef a -> StateIO ()
-updateRecomputedAt (Ref ref _) = do
+updateRecomputedAt ref = do
   env <- get
-  modifyIORefT ref (\n -> n & value.recomputedAt .~ (env^.info.stbNum))
+  modifyNodeRef ref (\n -> n & value.recomputedAt .~ (env^.info.stbNum))
 
 removeObs :: Eq a => NodeRef a -> ObsID -> StateIO ()
-removeObs (Ref ref _) i = do
-  modifyIORefT ref (\n -> n & edges.obsOnNode %~ (Set.delete i))
+removeObs ref i = modifyNodeRef ref (\n -> n & edges.obsOnNode %~ (Set.delete i))
 
 getParentsP :: PackedNode -> StateIO [PackedNode]
 getParentsP (PackedNode noderef) = readNodeRef noderef >>= (return . getParents)
 
+getTopParents :: (Eq a) => Node a -> [PackedNode]
+getTopParents n = iteriParents n go
+  where
+  go _ p@(PackedNode par) = case (getScope par) of Top     -> p
+                                                   Bound b -> (pack b)
+
 getTopParentsP :: PackedNode -> StateIO [PackedNode]
-getTopParentsP (PackedNode noderef) = do
-  node <- readNodeRef noderef
-  sequence $ iteriParents node go
-    where go _ p@(PackedNode par) = do
-            parent <- readNodeRef par
-            case (parent ^.createdIn) of
-              Top     -> return p
-              Bound b -> return (pack b)
+getTopParentsP (PackedNode noderef) = readNodeRef noderef >>= (return . getTopParents)
 
 isStaleP :: (Eq a) => NodeRef a -> StateIO Bool
 isStaleP ref = do

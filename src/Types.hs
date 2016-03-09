@@ -98,33 +98,34 @@ initKind = Uninitialized
 --     obsOnNode : observers added to the current node
 --   [temp]  : contains the teamporary information needed during computation.
 
-data NodeRef a = Ref (IORef (Node a)) !Unique
+data NodeRef a = Ref (IORef (Node a))  -- node ref
+                     !Unique           -- node id
+                     !Scope            -- created in
 
 instance Show (NodeRef a) where
-  show (Ref _ index) = "[NodeRef ID = " ++ (show $ hashUnique index) ++ "]"
+  show (Ref _ index _) = "[NodeRef ID = " ++ (show $ hashUnique index) ++ "]"
 
 instance Eq (NodeRef a) where
-  (==) (Ref _ i1) (Ref _ i2) = i1 == i2
+  (==) (Ref _ i1 _) (Ref _ i2 _) = i1 == i2
 
 instance Ord (NodeRef a) where
-  (<=) (Ref _ i1) (Ref _ i2) = i1 <= i2
+  (<=) (Ref _ i1 _) (Ref _ i2 _) = i1 <= i2
 
-getID :: NodeRef a -> Unique
-getID (Ref _ i) = i
+getID (Ref _ i _) = i
 
-getRef :: NodeRef a -> IORef (Node a)
-getRef (Ref ref _) = ref
+getRef (Ref ref _ _) = ref
+
+getScope (Ref _ _ scope) = scope
 
 data Node a = Node {
     _kind      :: Kind a
   , _value     :: ValueInfo a
   , _edges     :: Edges
-  , _createdIn :: Scope
   -- , _temp  :: Temp
   }
 
 initNode :: Node a
-initNode = Node initKind initValueInfo initEdges initScope
+initNode = Node initKind initValueInfo initEdges
 
 data Edges = Edges {
     _parents   :: Set PackedNode
@@ -133,13 +134,6 @@ data Edges = Edges {
 
 initEdges :: Edges
 initEdges = Edges Set.empty Set.empty
-
--- data Temp = Temp {
---     _isInRecHeap :: !Bool
---   }
-
--- initTemp :: Temp
--- initTemp = Temp False
 
 data ValueInfo a = ValueInfo {
     _v            :: Maybe a
@@ -187,6 +181,10 @@ data PackedVar = forall a. Eq a => PackVar !(Var a)
 ---------------------------------- Scope --------------------------------------
 data Scope = Top
            | forall a. Eq a => Bound (NodeRef a)
+
+instance Show Scope where
+  show Top         = "Top"
+  show (Bound ref) = "Bound " ++ show ref
 
 initScope :: Scope
 initScope = Top

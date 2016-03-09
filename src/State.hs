@@ -55,10 +55,10 @@ removeChildren par_ref = do
     )
 
 checkIfUnnecessary :: Eq a => NodeRef a -> StateIO ()
-checkIfUnnecessary nf@(Ref ref _) = do
-  n <- readIORefT ref
+checkIfUnnecessary ref = do
+  n <- readNodeRef ref
   if (N.isNecessary n) then return ()
-                       else becameUnnecessary nf
+                       else becameUnnecessary ref
 
 -- | Make a node unnecessary, remove it's children
 becameUnnecessary :: Eq a => NodeRef a -> StateIO ()
@@ -112,11 +112,11 @@ addParent child_ref par_ref = do
        when (not was_necessary)     $ becameNecessary child_ref
 
 becameNecessary :: Eq a => NodeRef a -> StateIO ()
-becameNecessary parent@(Ref pref _) = do
+becameNecessary parent = do
   -- TODO: add fail conditions
   when verbose (putStrLnT $ "--* State.becameNecessary " ++ show parent)
   modify (\s -> s & info.debug.nodesBecame.necessary %~ (+ 1))
-  par_node <- readIORefT pref
+  par_node <- readNodeRef parent
   sequence_ $
     N.iteriChildren par_node (\_ (PackedNode child) -> addParent child parent)
   is_stale <- N.isStaleP parent
@@ -318,13 +318,13 @@ addNewObservers = do
       Disallowed -> error "State.addNewObservers observer is disallowed"
       Unlinked   -> return ()
       Created    -> do
-        let newobs         = PackObs (o{_state = InUse})
-            obs_id         = o^. obsID
-            nf@(Ref ref _) = o^. observing
-        was_necessary <- (readIORefT ref) >>= return . N.isNecessary
+        let newobs = PackObs (o{_state = InUse})
+            obs_id = o^. obsID
+            ref    = o^. observing
+        was_necessary <- readNodeRef ref >>= return . N.isNecessary
         modify (\s -> s & observer.all %~ (Map.insert obs_id newobs))
-        modifyIORefT ref (\n  -> n & edges.obsOnNode %~ (Set.insert obs_id))
-        when (not was_necessary) $ becameNecessary nf
+        modifyNodeRef ref (\n  -> n & edges.obsOnNode %~ (Set.insert obs_id))
+        when (not was_necessary) $ becameNecessary ref
 
 ---------------------------------- Var ----------------------------------
 -- Create a new node with kind = Variable. Return a proxy to the node
@@ -340,31 +340,31 @@ createVar use_current_scope v = do
   return (Var watched)
 
 setVarWhileNotStabilizing :: Eq a => Var a -> a -> StateIO ()
-setVarWhileNotStabilizing (Var nf@(Ref ref _)) new_v = do
+setVarWhileNotStabilizing (Var ref) new_v = do
   modify (\s -> s & info.debug.varSets %~ (+ 1))
-  watched <- readIORefT ref
+  watched <- readNodeRef ref
   stbnum  <- getStbNum
   let old_k = watched^.kind
       new_k = old_k{ mvalue = new_v }
   if (setAt old_k < stbnum)
-     then do modifyIORefT ref (\n -> n & kind .~ new_k{ setAt = stbnum })
-             when (N.isNecessary watched) (addToRecomputeHeap $ pack nf)
+     then do modifyNodeRef ref (\n -> n & kind .~ new_k{ setAt = stbnum })
+             when (N.isNecessary watched) (addToRecomputeHeap $ pack ref)
              -- when (N.isNecessary watched && not_in_rec_heap) (add to heap)
-     else modifyIORefT ref (\n -> n & kind .~ new_k)
+     else modifyNodeRef ref (\n -> n & kind .~ new_k)
 
 setVar :: Eq a => Var a -> a -> StateIO ()
-setVar v0@(Var (Ref ref _)) new_v = do
+setVar v0@(Var ref) new_v = do
   s0 <- get
   case (s0^.info.status) of
     NotStabilizing            -> setVarWhileNotStabilizing v0 new_v
     StabilizePreviouslyRaised ->
       error "Cannot set var -- stabilization previously raised"
     Stabilizing               -> do
-      watched <- readIORefT ref
+      watched <- readNodeRef ref
       let old_k = watched^.kind
       when (isNothing $ valueSetDuringStb old_k)
            (modify (\s -> s & varSetDuringStb %~ (PackVar v0 :)))
-      modifyIORefT ref (\n -> n & kind .~ old_k{valueSetDuringStb = Just new_v})
+      modifyNodeRef ref (\n -> n & kind .~ old_k{valueSetDuringStb = Just new_v})
 
 ---------------------------------- Bind ---------------------------------------
 -- 'bind' gives the flexibility to dynamically change the DAG
@@ -373,7 +373,6 @@ setVar v0@(Var (Ref ref _)) new_v = do
 bind :: (Eq a, Eq b) => (NodeRef a) -> (a -> StateIO (NodeRef b)) -> StateIO (NodeRef b)
 bind lhs_node f = do
   bind_node <- createNodeTop (Bind f lhs_node Nothing [])
-  modifyNodeRef bind_node (\n -> n & createdIn .~ (Bound bind_node))
   return bind_node
 
 
@@ -411,7 +410,7 @@ stabilize = do
 
 ---------------------------------- Helper -------------------------------------
 valueExn :: Eq a => NodeRef a -> StateIO a
-valueExn (Ref ref _) = readIORefT ref >>= (return . N.valueExn)
+valueExn ref = readNodeRef ref >>= (return . N.valueExn)
 
 -- | DFS parent nodes with a function 'check'. If 'check' returns True, then
 -- continue searching for parent; otherwise, return
