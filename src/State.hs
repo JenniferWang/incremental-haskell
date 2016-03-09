@@ -1,14 +1,10 @@
-{-# OPTIONS_GHC -fno-warn-name-shadowing #-}
-
 module State where
 import Lens.Simple
 import Control.Monad.Trans.State.Strict
 import Control.Monad.Trans.Class
 import Control.Monad (when, foldM, foldM_)
-import Data.Traversable (mapM)
 import Data.IORef
-import Data.Set (Set)
-import Data.Maybe(isNothing, fromJust, isJust)
+import Data.Maybe(isNothing, fromJust)
 import qualified Data.Set as Set
 import qualified Data.Map as Map
 import Data.Unique
@@ -16,10 +12,9 @@ import Prelude hiding (all)
 
 import Types
 import Utils
+import Var (getValue)
 import qualified Node      as N
 import qualified Observer  as O
-import qualified Var       as V
-import qualified Kind      as K
 import qualified ArrayFold as AF
 
 ---------------------------------- Node ----------------------------------
@@ -179,7 +174,8 @@ recompute (PackedNode nf) = do
             addParent new_rhs nf
             copyChild nf new_rhs
               where
-              update parent Nothing new_child = recomputeFromParent (pack new_child)
+              update :: Eq a => NodeRef a -> Maybe (NodeRef a) -> NodeRef a -> StateIO ()
+              update _ Nothing new_child = recomputeFromParent (pack new_child)
               update parent (Just old_child) new_child = do
                 if old_child == new_child
                    then return ()
@@ -467,7 +463,7 @@ printObs obs = O.obsValueExn obs
            >>= \x -> putStrLnT $ show obs ++ " = " ++ show x
 
 printVar :: (Show a, Eq a) => Var a -> StateIO ()
-printVar x = V.getValue x
+printVar x = Var.getValue x
           >>= \y -> putStrLnT $ show x ++ " = " ++ show y -- | Create a graph for testing
 
 printParents :: Var a -> StateIO ()
@@ -477,7 +473,7 @@ printParents var = do
 
 testMap :: StateIO ()
 testMap = do
-  v1    <- createVar False 5
+  v1    <- createVar False (5 :: Int)
   v2    <- createNodeTop (Map (+ 6) (watch v1))
   -- obs   <- createObserver v2
   putStrLnT "All nodes are added"
@@ -493,7 +489,7 @@ testMap = do
 
 testMap2 :: StateIO ()
 testMap2 = do
-  v1 <- createVar False 5
+  v1 <- createVar False (5 :: Int)
   v2 <- createVar False 10
   n  <- createNodeTop (Map2 (+) (watch v1) (watch v2))
   ob <- createObserver n
@@ -516,7 +512,7 @@ if_ a b c = bind a (\x -> if x then return b else return c)
 testBind1 :: StateIO ()
 testBind1 = do
   flag   <- createVar False True
-  then_  <- createVar True 5
+  then_  <- createVar True (5 :: Int)
   else_  <- createVar True 6
   try_if <- if_ (watch flag) (watch then_) (watch else_)
   ob     <- createObserver try_if
