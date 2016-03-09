@@ -2,8 +2,11 @@ module Utils
   where
 
 import Data.IORef
-import Types
 import Control.Monad.Trans.Class
+import Control.Monad.Trans.State.Strict(get)
+import Lens.Simple
+
+import Types
 
 pack :: (Eq a) => NodeRef a -> PackedNode
 pack = PackedNode
@@ -22,5 +25,11 @@ modifyNodeRef (Ref ref _) = modifyIORefT ref
 
 putStrLnT :: String -> StateIO ()
 putStrLnT = (lift . putStrLn)
+
+getStbNum:: StateIO Int
+getStbNum = do s <- get; return $ s^.info.stbNum
+
+getCurrScope :: StateIO Scope
+getCurrScope = do s <- get; return $ s^.info.currScope
 
 

@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -fno-warn-name-shadowing #-}
+
 module State where
 import Lens.Simple
 import Control.Monad.Trans.State.Strict
@@ -31,12 +33,6 @@ createNode k = getCurrScope >>= \s -> createNodeIn s k
 
 createNodeTop :: Eq a => Kind a -> StateIO (NodeRef a)
 createNodeTop = createNodeIn Top
-
-getStbNum:: StateIO Int
-getStbNum = do s <- get; return $ s^.info.stbNum
-
-getCurrScope :: StateIO Scope
-getCurrScope = do s <- get; return $ s^.info.currScope
 
 amStabilizing :: StateIO Bool
 amStabilizing = do
@@ -127,7 +123,7 @@ becameNecessary parent@(Ref pref _) = do
 removeFromRecHeap :: PackedNode -> StateIO ()
 removeFromRecHeap pn = modify (\s -> s & recHeap %~ (Set.delete pn))
 
--- Recompute the value of current node
+-- Recompute the value of current node without checking if the current node is stale or not
 recompute :: PackedNode -> StateIO ()
 recompute (PackedNode nf) = do
   when verbose (putStrLnT $ "--* State.recompute node " ++ show nf)
@@ -174,7 +170,7 @@ recompute (PackedNode nf) = do
       update nf r new_rhs
       copyChild nf new_rhs
         where
-        update parent Nothing new_child = recomputeWithRoots [pack new_child]
+        update parent Nothing new_child = recomputeFromParent (pack new_child)
                                        >> addParent new_child parent
         update parent (Just old_child) new_child = do
           if old_child == new_child
@@ -184,7 +180,7 @@ recompute (PackedNode nf) = do
                             ++ " to " ++ show parent)
                lift $ N.removeParent old_child parent
                invalidateNodesCreatedOnRHS nodes_r
-               recomputeWithRoots [pack new_child]
+               recomputeFromParent (pack new_child)
                addParent new_child parent
                checkIfUnnecessary old_child
 
@@ -198,8 +194,10 @@ maybeChangeValue ref new_v = do
     N.updateChangedAt ref
     modify (\s -> s & info.debug.nodesChanged %~ (+ 1))
 
-recomputeWithRoots :: [PackedNode] -> StateIO ()
-recomputeWithRoots roots = do
+-- Recompute from children sets. (From child nodes to parent nodes)
+-- a node cannot be recomputed more than once in one stabilization
+recomputeFromChildren :: [PackedNode] -> StateIO ()
+recomputeFromChildren roots = do
   (stack, _) <- topo roots [] Set.empty
   mapM_ recompute stack
   where
@@ -211,6 +209,26 @@ recomputeWithRoots roots = do
         (stack', seen') <- topo xs' stack (Set.insert x seen)
         topo xs (x:stack') seen'
 
+-- recomputeStaleNode :: PackedNode -> StateIO ()
+-- recomputeStaleNode pnf@(PackedNode nf) = do
+--   is_stale <- N.isStaleP nf
+--   if (is_stale) then recompute pnf
+--                 else return ()
+
+-- Recompute from a parent. This is only used to compute rhs nodes.
+-- TODO:It might be expensive?
+recomputeFromParent :: PackedNode -> StateIO ()
+recomputeFromParent p@(PackedNode par) = do
+  is_stale <- N.isStaleP par
+  if (not is_stale)
+     then return ()
+     else do
+       becameNecessary par
+       parent <- readNodeRef par
+       -- update children
+       sequence_ $ N.iteriChildren parent (\_ c -> recomputeFromParent c)
+       recompute p
+
 recomputeEverythingThatIsNecessary :: StateIO ()
 recomputeEverythingThatIsNecessary = do
   env <- get
@@ -220,7 +238,7 @@ recomputeEverythingThatIsNecessary = do
   is_cyclic <- foldM go False roots
   when (is_cyclic) $ error "Cycle detected! The graph is not DAG"
   -- topological sort: dfs + list
-  recomputeWithRoots roots
+  recomputeFromChildren roots
   -- clear the recompute heap
   modify (\s -> s & recHeap .~ Set.empty)
   where
@@ -350,11 +368,24 @@ setVar v0@(Var (Ref ref _)) new_v = do
       modifyIORefT ref (\n -> n & kind .~ old_k{valueSetDuringStb = Just new_v})
 
 ---------------------------------- Bind ---------------------------------------
+-- 'bind' gives the flexibility to dynamically change the DAG
+-- invariant: node created outside the bind scope should not be modified within the scope
+
 bind :: (Eq a, Eq b) => (NodeRef a) -> (a -> StateIO (NodeRef b)) -> StateIO (NodeRef b)
 bind lhs_node f = do
   bind_node <- createNodeTop (Bind f lhs_node Nothing [])
   modifyNodeRef bind_node (\n -> n & createdIn .~ (Bound bind_node))
   return bind_node
+
+
+---------------------------------- Map ----------------------------------------
+map n f = createNode (Map f n)
+
+map2 n1 n2 f = createNode (Map2 f n1 n2)
+
+map3 n1 n2 n3 f = createNode (Map3 f n1 n2 n3)
+
+map4 n1 n2 n3 n4 f = createNode (Map4 f n1 n2 n3 n4)
 
 ---------------------------------- Stabilization ------------------------------
 stabilize :: StateIO ()
@@ -508,6 +539,22 @@ testBind1 = do
   setVar else_ 9
   stabilize
   printObs ob
+
+testBind2 :: StateIO ()
+testBind2 = do
+  v1 <- createVar False (5 :: Int)
+  t1 <- State.map (watch v1) (+ 10)
+  t2 <- createVar False True
+
+  -- (NodeRef a) -> (a -> StateIO (NodeRef b)) -> StateIO (NodeRef b)
+  b1 <- bind (watch t2) (\_ -> do
+                  t3 <- State.map (watch v1) (+ 20)
+                  map2 t1 t3 (\x y -> x + y))
+  -- b1 <- bind (watch t2) (\_ -> State.map (watch v1) (+ 20))
+  ob <- createObserver b1
+  stabilize
+  printObs ob
+
 
 verbose :: Bool
 verbose = True

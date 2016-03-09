@@ -144,18 +144,21 @@ getParentsP (PackedNode noderef) = do
 isStaleP :: (Eq a) => NodeRef a -> StateIO Bool
 isStaleP ref = do
   node <- readNodeRef ref
+  stbnum <- getStbNum
   let rcp = node^.value.recomputedAt
-  case node^.kind of
-    ArrayFold _ _ _     -> isStaleWithRespectToAChild node
-    Uninitialized       -> error "[Node.isStale] The node is uninitialized"
-    Invalid             -> return False
-    Variable _ _ set_at -> return $ set_at > rcp
-    -- A const node is stale only at initialization.
-    Const _             -> return $ Stb.isNone rcp
-    Map _ _             -> isStaleWithRespectToAChild node
-    Map2 _ _ _          -> isStaleWithRespectToAChild node
-    Map3 _ _ _ _        -> isStaleWithRespectToAChild node
-    Map4 _ _ _ _ _      -> isStaleWithRespectToAChild node
-    Bind _ _ _ _        -> isStaleWithRespectToAChild node
-    _                   -> return $ Stb.isNone rcp
+  if (stbnum == rcp)
+     then return False
+     else case node^.kind of
+            ArrayFold _ _ _     -> isStaleWithRespectToAChild node
+            Uninitialized       -> error "[Node.isStale] The node is uninitialized"
+            Invalid             -> return False
+            Variable _ _ set_at -> return $ set_at > rcp
+            -- A const node is stale only at initialization.
+            Const _             -> return $ Stb.isNone rcp
+            Map _ _             -> isStaleWithRespectToAChild node
+            Map2 _ _ _          -> isStaleWithRespectToAChild node
+            Map3 _ _ _ _        -> isStaleWithRespectToAChild node
+            Map4 _ _ _ _ _      -> isStaleWithRespectToAChild node
+            Bind _ _ _ _        -> isStaleWithRespectToAChild node
+            _                   -> return $ Stb.isNone rcp
 
