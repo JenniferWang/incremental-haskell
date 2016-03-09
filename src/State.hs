@@ -534,6 +534,21 @@ testBind1 = do
   stabilize
   printObs ob
 
+
+-- "child ==> parent (in Top)"
+-- "child --> parent (in Bind)"
+-- t2[Var id=3] ==> b1[Bind id=4] <-- [Map2 id=7] (created on the fly)
+--                                       ^   ^
+--                                      /     \
+--                         t1[Map id=2]        t3[Map id=6] (created on the fly)
+--                                  ^               ^
+--                                  |               |
+--                                   \             /
+--                                     v1[Var id=1]
+--
+-- TODO: Does it make sense to create and change value during a function on the rhs of bind?
+-- say, is it leagal to write 'setVar t3' within rhs of [b1]?
+
 testBind2 :: StateIO ()
 testBind2 = do
   v1 <- createVar False (5 :: Int)
@@ -550,6 +565,8 @@ testBind2 = do
   printObs ob
 
   setVar v1 50
+  -- when [v1] is changed, we should recompute [b1] directly and invalidate
+  -- all the nodes created in rhs of [b1].
   stabilize
   printObs ob
 
