@@ -5,7 +5,7 @@ import Control.Monad.Trans.State.Strict
 import Control.Monad.Trans.Class (lift)
 import Data.Unique
 import Prelude hiding (id)
-import Data.Maybe(fromJust, isNothing)
+import Data.Maybe(fromJust, isNothing, catMaybes)
 import qualified Data.Set as Set
 
 import Lens.Simple
@@ -108,6 +108,9 @@ isNecessary n = (numParents n) > 0
              || (not $ Set.null (n^.edges.obsOnNode))
              || K.isFreeze (n^.kind)
 
+isNecessaryP :: (Eq a) => NodeRef a -> StateIO Bool
+isNecessaryP ref = readNodeRef ref >>= return . isNecessary
+
 -- | 'valueExn' extracts the value from the node
 valueExn :: (Eq a) => Node a -> a
 valueExn n
@@ -137,9 +140,17 @@ removeObs (Ref ref _) i = do
   modifyIORefT ref (\n -> n & edges.obsOnNode %~ (Set.delete i))
 
 getParentsP :: PackedNode -> StateIO [PackedNode]
-getParentsP (PackedNode noderef) = do
-  n <- readIORefT (getRef noderef)
-  return $ getParents n
+getParentsP (PackedNode noderef) = readNodeRef noderef >>= (return . getParents)
+
+getTopParentsP :: PackedNode -> StateIO [PackedNode]
+getTopParentsP (PackedNode noderef) = do
+  node <- readNodeRef noderef
+  sequence $ iteriParents node go
+    where go _ p@(PackedNode par) = do
+            parent <- readNodeRef par
+            case (parent ^.createdIn) of
+              Top     -> return p
+              Bound b -> return (pack b)
 
 isStaleP :: (Eq a) => NodeRef a -> StateIO Bool
 isStaleP ref = do

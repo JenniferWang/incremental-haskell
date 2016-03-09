@@ -67,7 +67,7 @@ data Kind a =
 
 instance Show (Kind a) where
   show (ArrayFold _ _ _) = "Array_fold"
-  show (Bind _ _ _ _)    = "Bind"
+  show (Bind _ _ _ nodes) = "[Bind] nodes created in rhs = " ++ show nodes
   show (Const _)         = "Const"
   show (Freeze _ _ _)    = "Freeze"
   show Invalid           = "Invalid"

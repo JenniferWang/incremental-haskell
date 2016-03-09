@@ -99,16 +99,18 @@ propagateInvalidity ref = dfsParentWithoutRepeat ref invalidateNode
 
 addParent :: (Eq a, Eq b) => NodeRef a -> NodeRef b -> StateIO ()
 addParent child_ref par_ref = do
-  when verbose (putStrLnT $ "--* State.addParent from child " ++ show child_ref ++ " to " ++ show par_ref)
   child  <- readNodeRef child_ref
-  let was_necessary = N.isNecessary child
-  -- when (not $ N.isNecessary parent) (error "We only add necessary parent")
-  N.addParent child_ref par_ref
-    -- if we add an invalid node to a parent => invalidate all the parents
-  when (not $ N.isValid child) $ propagateInvalidity child_ref
-  when (not was_necessary)     $ becameNecessary child_ref
+  if (N.isParent (pack par_ref) child)
+     then return ()
+     else do
+       when verbose (putStrLnT $ "--* State.addParent from child " ++ show child_ref ++ " to " ++ show par_ref)
+       let was_necessary = N.isNecessary child
+       -- when (not $ N.isNecessary parent) (error "We only add necessary parent")
+       N.addParent child_ref par_ref
+         -- if we add an invalid node to a parent => invalidate all the parents
+       when (not $ N.isValid child) $ propagateInvalidity child_ref
+       when (not was_necessary)     $ becameNecessary child_ref
 
--- | This is the main function
 becameNecessary :: Eq a => NodeRef a -> StateIO ()
 becameNecessary parent@(Ref pref _) = do
   -- TODO: add fail conditions
@@ -126,63 +128,68 @@ removeFromRecHeap pn = modify (\s -> s & recHeap %~ (Set.delete pn))
 -- Recompute the value of current node without checking if the current node is stale or not
 recompute :: PackedNode -> StateIO ()
 recompute (PackedNode nf) = do
-  when verbose (putStrLnT $ "--* State.recompute node " ++ show nf)
-  modify (\s -> s & info.debug.nodesRecomputed.byDefault %~ (+ 1))
-  N.updateRecomputedAt nf
-  n0 <- readNodeRef nf
-  case n0^.kind of
-    ArrayFold init f array -> AF.compute f init array >>= maybeChangeValue nf
-    Const x                -> maybeChangeValue nf x
-    Freeze _ cref f        -> do
-      cv <- valueExn cref
-      when (f cv) $ do removeChildren nf
-                       N.setKind nf (Const cv)
-                       if (N.isNecessary n0)
-                          -- original : then N.setHeight curr 0
-                          -- because as it could not have any children, the height = 0
-                          then return ()
-                          else becameUnnecessary nf
-      maybeChangeValue nf cv
+  n0     <- readNodeRef nf
+  stbnum <- getStbNum
+  if ((n0^.value.recomputedAt) >= stbnum)
+     then return ()
+     else do
+        when verbose (putStrLnT $ "--* State.recompute node " ++ show nf)
+        modify (\s -> s & info.debug.nodesRecomputed.byDefault %~ (+ 1))
+        N.updateRecomputedAt nf
+        case n0^.kind of
+          ArrayFold init f array -> AF.compute f init array >>= maybeChangeValue nf
+          Const x                -> maybeChangeValue nf x
+          Freeze _ cref f        -> do
+            cv <- valueExn cref
+            when (f cv) $ do removeChildren nf
+                             N.setKind nf (Const cv)
+                             if (N.isNecessary n0)
+                                -- original : then N.setHeight curr 0
+                                -- because as it could not have any children, the height = 0
+                                then return ()
+                                else becameUnnecessary nf
+            maybeChangeValue nf cv
 
-    Invalid                -> error "Invalid node should not be in the recompute heap"
-    Uninitialized          -> error "Current node is uninitialized"
-    Variable v0 _ _        -> maybeChangeValue nf v0
-    Map  f b               -> app1 f b >>= maybeChangeValue nf
-    Map2 f b c             -> app2 f b c >>= maybeChangeValue nf
-    Map3 f b c d           -> app3 f b c d >>= maybeChangeValue nf
-    Map4 f b c d e         -> app4 f b c d e >>= maybeChangeValue nf
-    -- Bind node is tricky.
-    --   a. [rhs] is Nothing, it should first compute [rhs] and
-    --     then add the edge [rhs] -> bind node [nf]
-    --   b. [rhs] is Just, there could be three cases which incurs the
-    --     recompute of the bind node.
-    --     1. Some node created OUTSIDE changes => don't really need to
-    --        invalidate nodes CREATED in rhs, a.k.a. nodes_r
-    --     2. The node on lhs changes => need to invalidate all the nodes
-    --        CREATED in rhs.
-    --     3. Both of the two cases occur
+          Invalid                -> error "Invalid node should not be in the recompute heap"
+          Uninitialized          -> error "Current node is uninitialized"
+          Variable v0 _ _        -> maybeChangeValue nf v0
+          Map  f b               -> app1 f b >>= maybeChangeValue nf
+          Map2 f b c             -> app2 f b c >>= maybeChangeValue nf
+          Map3 f b c d           -> app3 f b c d >>= maybeChangeValue nf
+          Map4 f b c d e         -> app4 f b c d e >>= maybeChangeValue nf
+          -- Bind node is tricky.
+          --   a. [rhs] is Nothing, it should first compute [rhs] and
+          --     then add the edge [rhs] -> bind node [nf]
+          --   b. [rhs] is Just, there could be three cases which incurs the
+          --     recompute of the bind node.
+          --     1. Some node created OUTSIDE changes => don't really need to
+          --        invalidate nodes CREATED in rhs, a.k.a. nodes_r
+          --     2. The node on lhs changes => need to invalidate all the nodes
+          --        CREATED in rhs.
+          --     3. Both of the two cases occur
 
-    Bind f l r nodes_r     -> do
-      lhs_node <- readNodeRef l
-      new_rhs  <- runWithScope (Bound nf) (\() -> f (N.valueExn lhs_node))
-      modifyNodeRef nf (\n -> n & kind %~ (\k -> k{ nodesCreatedInScope = []
-                                                  , rhs = Just new_rhs }))
-      update nf r new_rhs
-      copyChild nf new_rhs
-        where
-        update parent Nothing new_child = recomputeFromParent (pack new_child)
-                                       >> addParent new_child parent
-        update parent (Just old_child) new_child = do
-          if old_child == new_child
-             then return ()
-             else do
-               when verbose (putStrLnT $ "--* State.remove parent from child " ++ show old_child
-                            ++ " to " ++ show parent)
-               lift $ N.removeParent old_child parent
-               invalidateNodesCreatedOnRHS nodes_r
-               recomputeFromParent (pack new_child)
-               addParent new_child parent
-               checkIfUnnecessary old_child
+          Bind f l r nodes_r -> do
+            putStrLnT $ "State.recompute Bind node, nodes created on rhs " ++ show nodes_r
+            modifyNodeRef nf (\n -> n & kind %~ (\k -> k{ nodesCreatedInScope = [] }))
+            lhs_node <- readNodeRef l
+            new_rhs  <- runWithScope (Bound nf) (\() -> f (N.valueExn lhs_node))
+            modifyNodeRef nf (\n -> n & kind %~ (\k -> k{ rhs = Just new_rhs }))
+
+            update nf r new_rhs
+            addParent new_rhs nf
+            copyChild nf new_rhs
+              where
+              update parent Nothing new_child = recomputeFromParent (pack new_child)
+              update parent (Just old_child) new_child = do
+                if old_child == new_child
+                   then return ()
+                   else do
+                     when verbose (putStrLnT $ "--* State.remove parent from child " ++ show old_child
+                                  ++ " to " ++ show parent)
+                     lift $ N.removeParent old_child parent
+                     invalidateNodesCreatedOnRHS nodes_r
+                     recomputeFromParent (pack new_child)
+                     checkIfUnnecessary old_child
 
 maybeChangeValue :: Eq a => NodeRef a -> a -> StateIO ()
 maybeChangeValue ref new_v = do
@@ -205,29 +212,21 @@ recomputeFromChildren roots = do
     topo (x:xs) stack seen
       | x `Set.member` seen = topo xs stack seen
       | otherwise = do
-        xs' <- N.getParentsP x
-        (stack', seen') <- topo xs' stack (Set.insert x seen)
-        topo xs (x:stack') seen'
-
--- recomputeStaleNode :: PackedNode -> StateIO ()
--- recomputeStaleNode pnf@(PackedNode nf) = do
---   is_stale <- N.isStaleP nf
---   if (is_stale) then recompute pnf
---                 else return ()
+          -- Only fetch parents in the top scope or the bind node
+          xs'             <- N.getTopParentsP x
+          (stack', seen') <- topo xs' stack (Set.insert x seen)
+          topo xs (x:stack') seen'
 
 -- Recompute from a parent. This is only used to compute rhs nodes.
 -- TODO:It might be expensive?
 recomputeFromParent :: PackedNode -> StateIO ()
 recomputeFromParent p@(PackedNode par) = do
-  is_stale <- N.isStaleP par
-  if (not is_stale)
-     then return ()
-     else do
-       becameNecessary par
-       parent <- readNodeRef par
-       -- update children
-       sequence_ $ N.iteriChildren parent (\_ c -> recomputeFromParent c)
-       recompute p
+  parent <- readNodeRef par
+  -- update children
+  let was_necessary = N.isNecessary parent
+  sequence_ $ N.iteriChildren parent (\_ c -> recomputeFromParent c)
+  recompute p
+  when (not was_necessary) (becameNecessary par)
 
 recomputeEverythingThatIsNecessary :: StateIO ()
 recomputeEverythingThatIsNecessary = do
@@ -552,6 +551,10 @@ testBind2 = do
                   map2 t1 t3 (\x y -> x + y))
   -- b1 <- bind (watch t2) (\_ -> State.map (watch v1) (+ 20))
   ob <- createObserver b1
+  stabilize
+  printObs ob
+
+  setVar v1 50
   stabilize
   printObs ob
 
