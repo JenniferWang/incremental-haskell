@@ -302,6 +302,7 @@ disallowFutureUse (InterObs i s0 _)
 createObserver :: Eq a => NodeRef a -> StateIO (Observer a)
 createObserver nf = do
   i   <- lift newUnique
+  when verbose (putStrLnT $ "--* State.createObserver Observer ID = " ++ show i)
   let obs = InterObs i Created nf
   modify (\s -> s & observer.numActive %~ (+ 1))
   modify (\s -> s & observer.new %~ (PackObs obs :))

@@ -81,7 +81,6 @@ example3 = do
   Inc.stabilize
   printObs ob
 
-
 -- "child ==> parent (in Top)"
 -- "child --> parent (in Bind)"
 -- t2[Var id=3] ==> b1[Bind id=4] <-- [Map2 id=7] (created on the fly)
@@ -117,6 +116,26 @@ example4 = do
   Inc.stabilize
   printObs ob
 
+example5 :: StateIO ()
+example5 = do
+  putStrLnT "----------------- Begin example 5: Async -----------------"
+  v1 <- Inc.var (5 :: Int)
+  v2 <- Inc.var True
+  b1 <- Inc.bind (Inc.watch v2) (\_ -> expensiveWork 10000 >> return (Inc.watch v1))
+
+  ob <- Inc.observe b1
+  Inc.stabilizeAsync
+  ob2 <- Inc.observe b1
+
+  Inc.waitForStb
+  printObs ob
+  -- printObs ob2 -- should got exception
+  Inc.stabilize
+  printObs ob2
+
+expensiveWork :: Int -> StateIO ()
+expensiveWork n = lift (putStr $ (take n $ repeat '.'))
+
 main :: IO ()
 main = mapM_ Inc.run
-             [example1, example2, example3, example4]
+             [example5]
