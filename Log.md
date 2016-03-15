@@ -12,6 +12,8 @@ This implementation is less efficient than the original doubly linked list desig
 ## Right now we don't support `onUpdateHandler`
 
 ### Some ideas
+## Runtime exception handling
+Runtime exception is inevitable as incremental provides users with the flexibility to construct the DAG on the fly.However, the exception handling fuctions in `Control.Exception.Base` only work with `IO Monad` not monad transformer as we use in our code. [This](https://www.schoolofhaskell.com/user/snoyberg/general-haskell/exceptions/exceptions-and-monad-transformers) excellent blog discusses execption handling in monad transformer stack. Luckily, `exception` package well suits our use case.
 
 ## How to do recomputation?
 In the JS library, they use `adjust_heights_heap` and `recompute_heap` to do recompute necessary nodes. The `recompute_heap` is not a real heap. It is an array, the index of which is equal to the height of the nodes. Each cell constains a pointer to a doubly-linked-list of nodes with the same height. We could certainly do the same thing, but we would like to try something much easier currently.
