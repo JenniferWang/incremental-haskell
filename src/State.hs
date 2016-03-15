@@ -504,96 +504,12 @@ app3 f b c d = valueExn b >>= \bv -> app2 (f bv) c d
 
 app4 f b c d e = valueExn b >>= \bv -> app3 (f bv) c d e
 
----------------------------------- Toy Test --------------------------------------
-
 printParents :: Var a -> StateIO ()
 printParents var = do
   n <- readIORefT $ getRef (watch var)
   putStrLnT $ show (N.getParents n)
 
--- testMap2 :: StateIO ()
--- testMap2 = do
---   v1 <- createVar False (5 :: Int)
---   v2 <- createVar False 10
---   n  <- createNodeTop (Map2 (+) (watch v1) (watch v2))
---   ob <- createObserver n
---   putStrLnT "All nodes are added"
-
---   stabilize
---   printObs ob
---   putStrLnT "After first stabilization"
-
---   setVar v1 7
---   -- setVar v2 11
---   stabilize
---   printObs ob
---   putStrLnT "After second stabilization"
-
--- if_ :: Eq a
---     => NodeRef Bool -> NodeRef a -> NodeRef a -> StateIO (NodeRef a)
--- if_ a b c = bind a (\x -> if x then return b else return c)
-
--- testBind1 :: StateIO ()
--- testBind1 = do
---   flag   <- createVar False True
---   then_  <- createVar True (5 :: Int)
---   else_  <- createVar True 6
---   try_if <- if_ (watch flag) (watch then_) (watch else_)
---   ob     <- createObserver try_if
-
---   stabilize
---   printObs ob
-
---   setVar then_ 7
---   stabilize
---   printObs ob
-
---   setVar flag False
---   stabilize
---   printObs ob
-
---   setVar flag True
---   setVar then_ 8
---   setVar else_ 9
---   stabilize
---   printObs ob
-
-
--- "child ==> parent (in Top)"
--- "child --> parent (in Bind)"
--- t2[Var id=3] ==> b1[Bind id=4] <-- [Map2 id=7] (created on the fly)
---                                       ^   ^
---                                      /     \
---                         t1[Map id=2]        t3[Map id=6] (created on the fly)
---                                  ^              ^
---                                   \            /
---                                    v1[Var id=1]
---
--- TODO: Does it make sense to create and change value during a function on the rhs of bind?
--- say, is it leagal to write 'setVar t3' within rhs of [b1]?
-
--- testBind2 :: StateIO ()
--- testBind2 = do
---   v1 <- createVar False (5 :: Int)
---   t1 <- State.map (watch v1) (+ 10)
---   t2 <- createVar False True
-
---   -- (NodeRef a) -> (a -> StateIO (NodeRef b)) -> StateIO (NodeRef b)
---   b1 <- bind (watch t2) (\_ -> do
---                   t3 <- State.map (watch v1) (+ 20)
---                   map2 t1 t3 (\x y -> x + y))
---   -- b1 <- bind (watch t2) (\_ -> State.map (watch v1) (+ 20))
---   ob <- createObserver b1
---   stabilize
---   printObs ob
-
---   setVar v1 50
---   -- when [v1] is changed, we should recompute [b1] directly and invalidate
---   -- all the nodes created in rhs of [b1].
---   stabilize
---   printObs ob
-
-
+-- TODO
 verbose :: Bool
 verbose = True
 

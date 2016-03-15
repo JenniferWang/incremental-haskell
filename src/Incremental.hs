@@ -10,6 +10,7 @@ module Incremental (
   , map2
   , map3
   , map4
+  , bind
   , (>>|)
   , (>>=|)
   , freeze
@@ -31,7 +32,6 @@ import Prelude hiding (const, map)
 
 import Types
 import qualified Observer as O
-import qualified Node     as N
 import qualified Var      as V
 import qualified State    as S
 
