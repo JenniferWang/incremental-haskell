@@ -4,7 +4,6 @@ import Incremental (Observer, Var, StateIO)
 import qualified Incremental as Inc
 import Control.Monad.Trans.Class (lift)
 
-
 putStrLnT :: String -> StateIO ()
 putStrLnT = (lift . putStrLn)
 
@@ -18,7 +17,7 @@ printVar x = Inc.readVar x
 example1 :: StateIO ()
 example1 = do
   v1    <- Inc.var (5 :: Int)
-  v2    <- Inc.map (Inc.watch v1) (+ 6)
+  v2    <- Inc.map (+ 6) (Inc.watch v1)
   -- obs   <- createObserver v2
   putStrLnT "All nodes are added"
 

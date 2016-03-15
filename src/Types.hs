@@ -176,9 +176,6 @@ instance Show (Var a) where
 
 data PackedVar = forall a. Eq a => PackVar !(Var a)
 
----------------------------------- Bind --------------------------------------
-
-
 ---------------------------------- Scope --------------------------------------
 data Scope = Top
            | forall a. Eq a => Bound (NodeRef a)

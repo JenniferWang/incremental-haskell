@@ -1,4 +1,3 @@
-{-# OPTIONS_GHC -fno-warn-unused-imports #-}
 module Incremental (
     observe
   , disallowFutureUse
@@ -47,27 +46,27 @@ disallowFutureUse (Obs id) = do
   (PackObs inter_ob) <- O.getObsByID id
   S.disallowFutureUse inter_ob
 
-map :: (Eq a, Eq b) => NodeRef b -> (b -> a) -> StateIO (NodeRef a)
+map :: (Eq a, Eq b) => (b -> a) -> NodeRef b -> StateIO (NodeRef a)
 map = S.map
 
 map2 :: (Eq a, Eq b, Eq c) =>
-     NodeRef b -> NodeRef c -> (b -> c -> a) -> StateIO (NodeRef a)
+     (b -> c -> a) -> NodeRef b -> NodeRef c  -> StateIO (NodeRef a)
 map2 = S.map2
 
 map3 :: (Eq a, Eq b, Eq c, Eq d) =>
-     NodeRef b
+     (b -> c -> d -> a)
+     -> NodeRef b
      -> NodeRef c
      -> NodeRef d
-     -> (b -> c -> d -> a)
      -> StateIO (NodeRef a)
 map3 = S.map3
 
 map4 :: (Eq a, Eq b, Eq c, Eq d, Eq e) =>
-     NodeRef b
+     (b -> c -> d -> e -> a)
+     -> NodeRef b
      -> NodeRef c
      -> NodeRef d
      -> NodeRef e
-     -> (b -> c -> d -> e -> a)
      -> StateIO (NodeRef a)
 map4 = S.map4
 
@@ -75,8 +74,8 @@ bind :: (Eq a, Eq b) =>
      NodeRef a -> (a -> StateIO (NodeRef b)) -> StateIO (NodeRef b)
 bind = S.bind
 
-(>>|) :: (Eq a, Eq b) => NodeRef b -> (b -> a) -> StateIO (NodeRef a)
-node >>| f = map node f
+(>>|) :: (Eq a, Eq b) => (b -> a) -> NodeRef b -> StateIO (NodeRef a)
+f >>| node = map f node
 
 (>>=|) :: (Eq a, Eq b) =>
        NodeRef a -> (a -> StateIO (NodeRef b)) -> StateIO (NodeRef b)

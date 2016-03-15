@@ -381,13 +381,13 @@ bind lhs_node f = do
 
 
 ---------------------------------- Map ----------------------------------------
-map n f = createNode (Map f n)
+map f n = createNode (Map f n)
 
-map2 n1 n2 f = createNode (Map2 f n1 n2)
+map2 f n1 n2 = createNode (Map2 f n1 n2)
 
-map3 n1 n2 n3 f = createNode (Map3 f n1 n2 n3)
+map3 f n1 n2 n3 = createNode (Map3 f n1 n2 n3)
 
-map4 n1 n2 n3 n4 f = createNode (Map4 f n1 n2 n3 n4)
+map4 f n1 n2 n3 n4 = createNode (Map4 f n1 n2 n3 n4)
 
 ---------------------------------- Stabilization ------------------------------
 -- Helper function. Excute stabilization with a give state.
