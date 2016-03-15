@@ -3,6 +3,8 @@ import Lens.Simple
 import Control.Monad.Trans.State.Strict
 import Control.Monad.Trans.Class
 import Control.Monad (when, foldM, foldM_)
+import Control.Monad.Catch (finally)
+import Control.Concurrent.Async (async, wait)
 import Data.IORef
 import Data.Maybe(isNothing, fromJust)
 import qualified Data.Set as Set
@@ -256,11 +258,12 @@ addToRecomputeHeap pn = do
 invalidateNodesCreatedOnRHS :: [PackedNode] -> StateIO ()
 invalidateNodesCreatedOnRHS = foldM_ (\() (PackedNode nf) -> propagateInvalidity nf) ()
 
--- TODO: https://github.com/janestreet/incremental/blob/master/src/state.ml#L532
+-- Run a user-give fuction in specific scope.
 runWithScope :: Eq a => Scope -> (() -> StateIO (NodeRef a)) -> StateIO (NodeRef a)
 runWithScope scope f = do
+  saved <- getCurrScope
   modify (\s -> s & info.currScope .~ scope)
-  f ()
+  f () `finally` modify (\s -> s & info.currScope .~ saved)
 
 copyChild :: Eq a => NodeRef a -> NodeRef a -> StateIO ()
 copyChild pref cref = do
@@ -322,13 +325,17 @@ addNewObservers = do
         modifyNodeRef ref (\n  -> n & edges.obsOnNode %~ (Set.insert obs_id))
         when (not was_necessary) $ becameNecessary ref
 
----------------------------------- Var ----------------------------------
+--------------------------------- Const ---------------------------------------
+const :: Eq a => a -> StateIO (NodeRef a)
+const v = createNode (Const v)
+
+---------------------------------- Var ----------------------------------------
 -- Create a new node with kind = Variable. Return a proxy to the node
 -- This will not add the node to the DAG
 createVar :: Eq a => Bool -> a -> StateIO (Var a)
 createVar use_current_scope v = do
   stbnum <- getStbNum
-  curr <- getCurrScope
+  curr   <- getCurrScope
   let var = Variable v Nothing stbnum
       scope = if use_current_scope then curr else Top
   watched <- createNodeIn scope var
@@ -403,6 +410,14 @@ stabilize = do
             modifyIORefT (getRef $ watch var)
                          (\n -> n & kind .~ old_k{valueSetDuringStb = Nothing})
             setVarWhileNotStabilizing var v0
+
+---------------------------------- Freeze -------------------------------------
+freeze :: Eq a => NodeRef a -> (a -> Bool) -> StateIO (NodeRef a)
+freeze child only_freeze_when = do
+  new_node <- createNodeTop Uninitialized
+  N.setKind new_node (Freeze new_node child only_freeze_when)
+  addParent child new_node
+  return new_node
 
 ---------------------------------- Helper -------------------------------------
 valueExn :: Eq a => NodeRef a -> StateIO a
@@ -541,10 +556,9 @@ testBind1 = do
 --                                       ^   ^
 --                                      /     \
 --                         t1[Map id=2]        t3[Map id=6] (created on the fly)
---                                  ^               ^
---                                  |               |
---                                   \             /
---                                     v1[Var id=1]
+--                                  ^              ^
+--                                   \            /
+--                                    v1[Var id=1]
 --
 -- TODO: Does it make sense to create and change value during a function on the rhs of bind?
 -- say, is it leagal to write 'setVar t3' within rhs of [b1]?

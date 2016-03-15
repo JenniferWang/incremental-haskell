@@ -33,6 +33,8 @@ library
                      , lens-simple >= 0.1.0.8
                      , containers
                      , transformers >= 0.4.2.0
+                     , exceptions
+                     , async
   default-language:    Haskell2010
   ghc-options:        -Wall  -fno-warn-unused-do-bind -fno-warn-missing-signatures -fno-warn-name-shadowing
 
@@ -48,3 +50,11 @@ test-suite incremantal-test
                      , hspec
   default-language:    Haskell2010
   ghc-options:        -Wall  -fno-warn-unused-do-bind -fno-warn-missing-signatures -fno-warn-name-shadowing -fno-warn-unused-imports
+
+executable incremental-exe
+  hs-source-dirs:     app
+  main-is:            Main.hs
+  ghc-options:        -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
+  build-depends:      base
+                    , incremental
+  default-language:   Haskell2010
