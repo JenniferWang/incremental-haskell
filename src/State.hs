@@ -505,81 +505,58 @@ app3 f b c d = valueExn b >>= \bv -> app2 (f bv) c d
 app4 f b c d e = valueExn b >>= \bv -> app3 (f bv) c d e
 
 ---------------------------------- Toy Test --------------------------------------
-printObs :: (Show a, Eq a) => Observer a -> StateIO ()
-printObs obs = O.obsValueExn obs
-           >>= \x -> putStrLnT $ show obs ++ " = " ++ show x
-
-printVar :: (Show a, Eq a) => Var a -> StateIO ()
-printVar x = Var.getValue x
-          >>= \y -> putStrLnT $ show x ++ " = " ++ show y -- | Create a graph for testing
 
 printParents :: Var a -> StateIO ()
 printParents var = do
   n <- readIORefT $ getRef (watch var)
   putStrLnT $ show (N.getParents n)
 
-testMap :: StateIO ()
-testMap = do
-  v1    <- createVar False (5 :: Int)
-  v2    <- createNodeTop (Map (+ 6) (watch v1))
-  -- obs   <- createObserver v2
-  putStrLnT "All nodes are added"
+-- testMap2 :: StateIO ()
+-- testMap2 = do
+--   v1 <- createVar False (5 :: Int)
+--   v2 <- createVar False 10
+--   n  <- createNodeTop (Map2 (+) (watch v1) (watch v2))
+--   ob <- createObserver n
+--   putStrLnT "All nodes are added"
 
-  a1 <- stabilize
-  printVar v1
-  -- printObs obs
+--   stabilize
+--   printObs ob
+--   putStrLnT "After first stabilization"
 
-  setVar v1 10
-  stabilize
-  printVar v1
-  -- printObs obs
+--   setVar v1 7
+--   -- setVar v2 11
+--   stabilize
+--   printObs ob
+--   putStrLnT "After second stabilization"
 
-testMap2 :: StateIO ()
-testMap2 = do
-  v1 <- createVar False (5 :: Int)
-  v2 <- createVar False 10
-  n  <- createNodeTop (Map2 (+) (watch v1) (watch v2))
-  ob <- createObserver n
-  putStrLnT "All nodes are added"
+-- if_ :: Eq a
+--     => NodeRef Bool -> NodeRef a -> NodeRef a -> StateIO (NodeRef a)
+-- if_ a b c = bind a (\x -> if x then return b else return c)
 
-  stabilize
-  printObs ob
-  putStrLnT "After first stabilization"
+-- testBind1 :: StateIO ()
+-- testBind1 = do
+--   flag   <- createVar False True
+--   then_  <- createVar True (5 :: Int)
+--   else_  <- createVar True 6
+--   try_if <- if_ (watch flag) (watch then_) (watch else_)
+--   ob     <- createObserver try_if
 
-  setVar v1 7
-  -- setVar v2 11
-  stabilize
-  printObs ob
-  putStrLnT "After second stabilization"
+--   stabilize
+--   printObs ob
 
-if_ :: Eq a
-    => NodeRef Bool -> NodeRef a -> NodeRef a -> StateIO (NodeRef a)
-if_ a b c = bind a (\x -> if x then return b else return c)
+--   setVar then_ 7
+--   stabilize
+--   printObs ob
 
-testBind1 :: StateIO ()
-testBind1 = do
-  flag   <- createVar False True
-  then_  <- createVar True (5 :: Int)
-  else_  <- createVar True 6
-  try_if <- if_ (watch flag) (watch then_) (watch else_)
-  ob     <- createObserver try_if
+--   setVar flag False
+--   stabilize
+--   printObs ob
 
-  stabilize
-  printObs ob
-
-  setVar then_ 7
-  stabilize
-  printObs ob
-
-  setVar flag False
-  stabilize
-  printObs ob
-
-  setVar flag True
-  setVar then_ 8
-  setVar else_ 9
-  stabilize
-  printObs ob
+--   setVar flag True
+--   setVar then_ 8
+--   setVar else_ 9
+--   stabilize
+--   printObs ob
 
 
 -- "child ==> parent (in Top)"
@@ -595,31 +572,28 @@ testBind1 = do
 -- TODO: Does it make sense to create and change value during a function on the rhs of bind?
 -- say, is it leagal to write 'setVar t3' within rhs of [b1]?
 
-testBind2 :: StateIO ()
-testBind2 = do
-  v1 <- createVar False (5 :: Int)
-  t1 <- State.map (watch v1) (+ 10)
-  t2 <- createVar False True
+-- testBind2 :: StateIO ()
+-- testBind2 = do
+--   v1 <- createVar False (5 :: Int)
+--   t1 <- State.map (watch v1) (+ 10)
+--   t2 <- createVar False True
 
-  -- (NodeRef a) -> (a -> StateIO (NodeRef b)) -> StateIO (NodeRef b)
-  b1 <- bind (watch t2) (\_ -> do
-                  t3 <- State.map (watch v1) (+ 20)
-                  map2 t1 t3 (\x y -> x + y))
-  -- b1 <- bind (watch t2) (\_ -> State.map (watch v1) (+ 20))
-  ob <- createObserver b1
-  stabilize
-  printObs ob
+--   -- (NodeRef a) -> (a -> StateIO (NodeRef b)) -> StateIO (NodeRef b)
+--   b1 <- bind (watch t2) (\_ -> do
+--                   t3 <- State.map (watch v1) (+ 20)
+--                   map2 t1 t3 (\x y -> x + y))
+--   -- b1 <- bind (watch t2) (\_ -> State.map (watch v1) (+ 20))
+--   ob <- createObserver b1
+--   stabilize
+--   printObs ob
 
-  setVar v1 50
-  -- when [v1] is changed, we should recompute [b1] directly and invalidate
-  -- all the nodes created in rhs of [b1].
-  stabilize
-  printObs ob
+--   setVar v1 50
+--   -- when [v1] is changed, we should recompute [b1] directly and invalidate
+--   -- all the nodes created in rhs of [b1].
+--   stabilize
+--   printObs ob
 
 
 verbose :: Bool
 verbose = True
-
-runTest :: StateIO a -> IO ()
-runTest action = runStateT action initState >> return ()
 

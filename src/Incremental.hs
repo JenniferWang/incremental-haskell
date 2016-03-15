@@ -5,6 +5,8 @@ module Incremental (
   , const
   , var
   , varInScope
+  , readVar
+  , writeVar
   , map
   , map2
   , map3
@@ -17,9 +19,15 @@ module Incremental (
   , amStabilizing
   , stabilizeAsync
   , waitForStb
-  , main
+  , readObs
+  , run
+  , Observer
+  , Var(..)
+  , NodeRef
+  , StateIO
   ) where
 
+import Control.Monad.Trans.State.Strict (runStateT)
 import Prelude hiding (const, map)
 
 import Types
@@ -78,6 +86,12 @@ node >>=| mf = bind node mf
 var :: Eq a => a -> StateIO (Var a)
 var = S.createVar False
 
+readVar :: Eq a => Var a -> StateIO a
+readVar = V.getValue
+
+writeVar :: Eq a => Var a -> a -> StateIO ()
+writeVar = S.setVar
+
 -- This should only be used for nodes chreated in bind.
 varInScope :: Eq a => a -> StateIO (Var a)
 varInScope = S.createVar True
@@ -105,7 +119,9 @@ stabilizeAsync = S.stabilizeAsync
 waitForStb :: StateIO ()
 waitForStb = S.waitForStb
 
--- TODO: delete, this is temporary
-main :: IO ()
-main = S.runTest S.testBind1
+readObs :: (Eq a) => Observer a -> StateIO a
+readObs = O.obsValueExn
+
+run :: StateIO a -> IO ()
+run action =  runStateT action initState >> return ()
 
