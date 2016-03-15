@@ -1,6 +1,7 @@
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 module Incremental (
     observe
+  , disallowFutureUse
   , const
   , var
   , varInScope
@@ -14,21 +15,29 @@ module Incremental (
   , freezeWhen
   , stabilize
   , amStabilizing
+  , stabilizeAsync
+  , waitForStb
   , main
   ) where
 
 import Prelude hiding (const, map)
 
 import Types
-import qualified Node as N
-import qualified Var as V
-import qualified State as S
+import qualified Observer as O
+import qualified Node     as N
+import qualified Var      as V
+import qualified State    as S
 
 const :: Eq a => a -> StateIO (NodeRef a)
 const = S.const
 
 observe :: Eq a => NodeRef a -> StateIO (Observer a)
 observe = S.createObserver
+
+disallowFutureUse :: Eq a => Observer a -> StateIO ()
+disallowFutureUse (Obs id) = do
+  (PackObs inter_ob) <- O.getObsByID id
+  S.disallowFutureUse inter_ob
 
 map :: (Eq a, Eq b) => NodeRef b -> (b -> a) -> StateIO (NodeRef a)
 map = S.map
@@ -79,13 +88,24 @@ freeze node = S.freeze node (\_ -> True)
 freezeWhen :: Eq a => NodeRef a -> (a -> Bool) -> StateIO (NodeRef a)
 freezeWhen = S.freeze
 
+-- This version of stabilization executes in one thread
 stabilize :: StateIO ()
 stabilize = S.stabilize
 
 amStabilizing :: StateIO Bool
 amStabilizing = S.amStabilizing
 
+-- Execute stabilization asynchronously. This will be helpful if the computation
+-- takes too long and the user interface should not be blocked by the computation.
+-- Users could edit observers/set vars during stabilization.
+stabilizeAsync :: StateIO ()
+stabilizeAsync = S.stabilizeAsync
+
+-- Wait for the async stabilization to finish before fetching the values
+waitForStb :: StateIO ()
+waitForStb = S.waitForStb
+
 -- TODO: delete, this is temporary
 main :: IO ()
-main = S.runTest S.testMap
+main = S.runTest S.testBind1
 

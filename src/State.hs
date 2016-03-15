@@ -37,7 +37,7 @@ amStabilizing = do
   case (s^.info.status) of
     NotStabilizing            -> return False
     StabilizePreviouslyRaised -> return False
-    Stabilizing               -> return True
+    Stabilizing _             -> return True
 
 -- | This function actually only removes the parent node from its children
 -- it does not remove the actual children from parent node, which is
@@ -118,9 +118,6 @@ becameNecessary parent = do
     N.iteriChildren par_node (\_ (PackedNode child) -> addParent child parent)
   is_stale <- N.isStaleP parent
   when is_stale $ addToRecomputeHeap (pack parent)
-
-removeFromRecHeap :: PackedNode -> StateIO ()
-removeFromRecHeap pn = modify (\s -> s & recHeap %~ (Set.delete pn))
 
 -- Recompute the value of current node without checking if the current node is stale or not
 recompute :: PackedNode -> StateIO ()
@@ -250,10 +247,13 @@ recomputeEverythingThatIsNecessary = do
     go True  _    = return True
     go False root = cyclic Set.empty root
 
--- TODO: marked as inline
 addToRecomputeHeap :: PackedNode -> StateIO ()
-addToRecomputeHeap pn = do
-  modify (\s -> s & recHeap %~ (Set.insert pn))
+addToRecomputeHeap pn = modify (\s -> s & recHeap %~ (Set.insert pn))
+{-# INLINE addToRecomputeHeap #-}
+
+removeFromRecHeap :: PackedNode -> StateIO ()
+removeFromRecHeap pn = modify (\s -> s & recHeap %~ (Set.delete pn))
+{-# INLINE removeFromRecHeap #-}
 
 invalidateNodesCreatedOnRHS :: [PackedNode] -> StateIO ()
 invalidateNodesCreatedOnRHS = foldM_ (\() (PackedNode nf) -> propagateInvalidity nf) ()
@@ -276,6 +276,7 @@ copyChild pref cref = do
 unlinkDisallowedObs :: StateIO ()
 unlinkDisallowedObs = do
   env <- get
+  when verbose (putStrLnT "--* State.unlinkDisallowedObs begin")
   mapM_ unlink0 $ env^.observer.disallowed
   modify (\s -> s & observer.disallowed .~ [])
     where unlink0 i = do
@@ -362,7 +363,7 @@ setVar v0@(Var ref) new_v = do
     NotStabilizing            -> setVarWhileNotStabilizing v0 new_v
     StabilizePreviouslyRaised ->
       error "Cannot set var -- stabilization previously raised"
-    Stabilizing               -> do
+    Stabilizing _             -> do
       watched <- readNodeRef ref
       let old_k = watched^.kind
       when (isNothing $ valueSetDuringStb old_k)
@@ -389,27 +390,58 @@ map3 n1 n2 n3 f = createNode (Map3 f n1 n2 n3)
 map4 n1 n2 n3 n4 f = createNode (Map4 f n1 n2 n3 n4)
 
 ---------------------------------- Stabilization ------------------------------
+-- Helper function. Excute stabilization with a give state.
+stabilizeWithState :: StateInfo -> IO StateInfo
+stabilizeWithState curr_state = execStateT execStb curr_state
+  where
+    execStb :: StateIO ()
+    execStb = do
+      s0 <- get
+      -- disallow finailized observers
+      addNewObservers
+      unlinkDisallowedObs
+      recomputeEverythingThatIsNecessary
+      modify (\s -> s & info.stbNum %~ (+ 1))
+      mapM_ go (s0^.varSetDuringStb)
+      modify (\s -> s & varSetDuringStb .~ [])
+      -- handler
+      modify (\s -> s & info.status .~ NotStabilizing)
+      -- TODO: add try-catch execption control flow
+      where go (PackVar var) = do
+              watched <- readIORefT (getRef $ watch var)
+              let old_k = watched^.kind
+                  v0    = fromJust $ valueSetDuringStb old_k
+              modifyIORefT (getRef $ watch var)
+                           (\n -> n & kind .~ old_k{valueSetDuringStb = Nothing})
+              setVarWhileNotStabilizing var v0
+
+stabilizeAsync :: StateIO ()
+stabilizeAsync = do
+  old_state <- get
+  case old_state^.info.status of
+    Stabilizing _ -> return ()
+    _             -> do
+      handle <- lift $ async (stabilizeWithState old_state)
+      modify (\s -> s & info.status .~ (Stabilizing handle))
+
+waitForStb :: StateIO ()
+waitForStb = do
+  curr_state <- get
+  case curr_state^.info.status of
+    Stabilizing handle -> do new_state <- lift $ wait handle
+                             modify (\s -> mergeTwoStates curr_state new_state)
+    _                  -> return ()
+
+mergeTwoStates :: StateInfo -> StateInfo -> StateInfo
+mergeTwoStates curr_state new_state =
+  let s0 = new_state{ _varSetDuringStb = curr_state^.varSetDuringStb}
+   in s0 & observer.new .~ (curr_state^.observer.new)
+
 stabilize :: StateIO ()
 stabilize = do
-  s0 <- get
-  modify (\s -> s & info.status .~ Stabilizing)
-  -- disallow finailized observers
-  addNewObservers
-  -- unlink disallowed observers
-  recomputeEverythingThatIsNecessary
-  modify (\s -> s & info.stbNum %~ (+ 1))
-  mapM_ go (s0^.varSetDuringStb)
-  modify (\s -> s & varSetDuringStb .~ [])
-  -- handler
-  modify (\s -> s& info.status .~ NotStabilizing)
-  -- TODO: add try-catch execption control flow
-    where go (PackVar var) = do
-            watched <- readIORefT (getRef $ watch var)
-            let old_k = watched^.kind
-                v0    = fromJust $ valueSetDuringStb old_k
-            modifyIORefT (getRef $ watch var)
-                         (\n -> n & kind .~ old_k{valueSetDuringStb = Nothing})
-            setVarWhileNotStabilizing var v0
+  old_state <- get
+  new_state <- lift $ stabilizeWithState old_state
+  modify (\s -> mergeTwoStates old_state new_state)
 
 ---------------------------------- Freeze -------------------------------------
 freeze :: Eq a => NodeRef a -> (a -> Bool) -> StateIO (NodeRef a)
@@ -493,7 +525,7 @@ testMap = do
   -- obs   <- createObserver v2
   putStrLnT "All nodes are added"
 
-  stabilize
+  a1 <- stabilize
   printVar v1
   -- printObs obs
 

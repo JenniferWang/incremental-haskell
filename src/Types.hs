@@ -10,7 +10,8 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Control.Monad.Trans.State.Strict hiding (State)
+import Control.Monad.Trans.State.Strict (StateT)
+import Control.Concurrent.Async (Async)
 import Prelude hiding (all)
 
 import Lens.Simple
@@ -236,21 +237,21 @@ instance Show (Observer a) where
 type StateIO a = StateT StateInfo IO a
 
 data StateInfo = StateInfo {
-    _info           :: StatusInfo
-  , _recHeap        :: Set PackedNode
-  , _observer       :: ObserverInfo
+    _info            :: StatusInfo
+  , _recHeap         :: Set PackedNode
+  , _observer        :: ObserverInfo
   , _varSetDuringStb :: [PackedVar]
   }
 
 initState :: StateInfo
 initState = StateInfo initStatusInfo Set.empty initObserverInfo []
 
-data Status = Stabilizing
+data Status = Stabilizing (Async StateInfo)
             | NotStabilizing
             | StabilizePreviouslyRaised
 
 initStatus :: Status
-initStatus= Stabilizing
+initStatus = NotStabilizing
 
 data StatusInfo = StatusInfo {
     _status    :: Status
@@ -262,13 +263,16 @@ data StatusInfo = StatusInfo {
 initStatusInfo :: StatusInfo
 initStatusInfo = StatusInfo initStatus initStbNum initScope initDebugInfo
 
--- | The actual information of observers are stored in [_all]
--- In either [Node._obsOnNode] ore here, we store the [ObsID]
+-- | The actual information of observers are stored in [_all], which contains
+-- the only copy of observer instance
+-- In all the other places, e.g. [Node^.edges.obsOnNode], we use [ObsID]. Thus
+-- each time we need to fetch an observer, it involve a O(log(n)). If we have
+-- a lot of observers, we could reduce lookup time by using cache or IntMap
 data ObserverInfo = ObserverInfo {
      _numActive  :: Int
    , _all        :: Map ObsID PackedObs
    , _new        :: [PackedObs]
-   , _disallowed :: [ObsID]
+   , _disallowed :: [ObsID]          -- TODO
    }
 
 initObserverInfo :: ObserverInfo
