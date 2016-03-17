@@ -122,7 +122,6 @@ data Node a = Node {
     _kind      :: Kind a
   , _value     :: ValueInfo a
   , _edges     :: Edges
-  -- , _temp  :: Temp
   }
 
 initNode :: Node a
@@ -313,7 +312,6 @@ initRecomputedInfo :: RecomputedInfo
 initRecomputedInfo = RecomputedInfo 0 0 0
 
 makeLenses ''Node
--- makeLenses ''Temp
 makeLenses ''Edges
 makeLenses ''StateInfo
 makeLenses ''StatusInfo

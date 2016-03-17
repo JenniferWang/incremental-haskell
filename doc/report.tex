@@ -1,0 +1,112 @@
+\documentclass[a4paper, twocolumn]{article}
+\usepackage{geometry}
+\geometry{left=2.5cm,right=2.5cm,top=2.5cm,bottom=2.5cm}
+
+\usepackage{graphicx}
+\usepackage{natbib} 
+\usepackage{amsmath} 
+\usepackage{listings}
+\usepackage{authblk}
+\usepackage{color}
+
+\definecolor{dkgreen}{rgb}{0,0.6,0}
+\definecolor{gray}{rgb}{0.5,0.5,0.5}
+\definecolor{mauve}{rgb}{0.58,0,0.82}
+\lstset{frame=tb,
+  language=Haskell,
+  aboveskip=3mm,
+  belowskip=3mm,
+  showstringspaces=false,
+  columns=flexible,
+  basicstyle={\small\ttfamily},
+  numbers=none,
+  numberstyle=\tiny\color{gray},
+  keywordstyle=\color{blue},
+  commentstyle=\color{dkgreen},
+  stringstyle=\color{mauve},
+  breaklines=true,
+  breakatwhitespace=true,
+  tabsize=3
+}
+
+\setlength\parindent{0pt} % Removes all indentation from paragraphs
+
+\renewcommand{\labelenumi}{\alph{enumi}.} % Make numbering in the enumerate environment by letter rather than number (e.g. section 6)
+
+% \title{Determination of the Atomic \\ Weight of Magnesium \\ CHEM 101} % Title
+\title{Incremental Computing in Haskell\\CS240H Project Report}
+
+\author[]{Jiyue \textsc{Wang}} 
+\author[]{Kaixi \textsc{Ruan}}
+
+\date{\today}
+
+\begin{document}
+
+\maketitle 
+
+%----------------------------------------------------------------------------------------
+% Introduction
+%----------------------------------------------------------------------------------------
+\section{Introduction}
+
+%----------------------------------------------------------------------------------------
+% Different concepts in the library, how to use it
+%----------------------------------------------------------------------------------------
+\section{Incremental in a nutshell }
+
+\subsection{Incremental DAG}
+
+% Use a demo to illustrate the following concepts.
+\subsection{Demo}
+\begin{description}
+  \item [Variable] user could create variables which they could later change value 
+  \item [Operation] like map/bind/arrayfold/...
+  \item [Observer] use observer to observe some node/make it necessary
+  \item [Stabilize] after building the graph/change the value, use stabilize to ...
+  \item [Garbage Collection] 
+\end{description}
+ 
+% \begin{figure}[h]
+% \begin{center}
+% \includegraphics[width=0.65\textwidth]{placeholder} % Include the image placeholder.png
+% \caption{Figure caption.}
+% \end{center}
+% \end{figure}
+
+
+%----------------------------------------------------------------------------------------
+%	Implementation 
+%----------------------------------------------------------------------------------------
+\section{Implementation}
+\subsection{Node}
+\begin{lstlisting}
+  -- comment
+  data Node a = Node {
+    _kind      :: Kind a
+  , _value     :: ValueInfo a
+  , _edges     :: Edges
+  }  
+\end{lstlisting}
+
+\subsection{Kind}
+
+\subsection{State}
+
+\subsection{Stabilization}
+% TODO: add demo of async stabilization
+
+\subsection{Observer}
+
+%----------------------------------------------------------------------------------------
+%	BIBLIOGRAPHY
+%----------------------------------------------------------------------------------------
+
+\bibliographystyle{apalike}
+
+\bibliography{sample}
+
+%----------------------------------------------------------------------------------------
+
+
+\end{document}
