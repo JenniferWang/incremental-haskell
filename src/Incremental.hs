@@ -71,14 +71,14 @@ map4 :: (Eq a, Eq b, Eq c, Eq d, Eq e) =>
 map4 = S.map4
 
 bind :: (Eq a, Eq b) =>
-     NodeRef a -> (a -> StateIO (NodeRef b)) -> StateIO (NodeRef b)
+     StateIO (NodeRef a) -> (a -> StateIO (NodeRef b)) -> StateIO (NodeRef b)
 bind = S.bind
 
 (>>|) :: (Eq a, Eq b) => (b -> a) -> NodeRef b -> StateIO (NodeRef a)
 f >>| node = map f node
 
 (>>=|) :: (Eq a, Eq b) =>
-       NodeRef a -> (a -> StateIO (NodeRef b)) -> StateIO (NodeRef b)
+       StateIO (NodeRef a) -> (a -> StateIO (NodeRef b)) -> StateIO (NodeRef b)
 node >>=| mf = bind node mf
 
 -- By default, the create Var in global scope

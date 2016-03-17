@@ -14,7 +14,7 @@ import Prelude hiding (all)
 
 import Types
 import Utils
-import Var (getValue)
+import Var(getValue)
 import qualified Node      as N
 import qualified Observer  as O
 import qualified ArrayFold as AF
@@ -373,13 +373,28 @@ setVar v0@(Var ref) new_v = do
 
 ---------------------------------- Bind ---------------------------------------
 -- 'bind' gives the flexibility to dynamically change the DAG
+-- The bind signature makes it look like a real bind in Monad.
+--
+-- We used to have
+--   NodeRef a -> (a -> StateIO (NodeRef b)) -> StateIO (NodeRef b)
+--
+-- However, we think the current version is more convenient when the lhs is not a variable
+--   do v <- var (1::Int)
+--      b <- map (+ 1) v >>=| somefunc
+--
+-- compare to
+--   do v    <- var (1::Int)
+--      temp <- map (+ 1) v
+--      b    <- temp >>=| somefunc
+--
 -- invariant: node created outside the bind scope should not be modified within the scope
 
-bind :: (Eq a, Eq b) => (NodeRef a) -> (a -> StateIO (NodeRef b)) -> StateIO (NodeRef b)
-bind lhs_node f = do
+bind :: (Eq a, Eq b) =>
+     StateIO (NodeRef a) -> (a -> StateIO (NodeRef b)) -> StateIO (NodeRef b)
+bind lhs f = do
+  lhs_node  <- lhs
   bind_node <- createNodeTop (Bind f lhs_node Nothing [])
   return bind_node
-
 
 ---------------------------------- Map ----------------------------------------
 map f n = createNode (Map f n)
