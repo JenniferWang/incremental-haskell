@@ -10,7 +10,6 @@ import qualified Data.Set as Set
 
 import Lens.Simple
 
-import qualified Var              as V
 import qualified Kind             as K
 import qualified StabilizationNum as Stb
 import qualified Scope            as Scope

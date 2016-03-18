@@ -319,6 +319,9 @@ expensiveWork n = lift (putStr $ (take n $ repeat '.'))
 \subsection{Exception Handling}
 \paragraph{} Runtime exception are inevitables as the graph is changing dynamically. However, the exception handling fuctions in \code{Control.Exception.Base} only work with \code{IO} monad, not monad transformers. Exception handling in monad transformers could be tricky (see \cite{exception}). Fortunately, the \code{exceptions} package gives a clean solution in our case.
 
+\subsection{Garbage Collection}
+Generally speaking, nodes created in \code{Top} scope should never be garbage collected because they are static and might be observer by the user at some time. However, nodes created on RHS of \code{Bind} could be GC when it is no longer necessary. This is done by unlinking the unnecessary node from the graph and the Haskell runtime system will do GC for us.
+
 \section{Future Work}
 \subsection{Testing}
 \paragraph{} Currently, we don't have enough time to write thorough test cases for the library. As most of the function has \code{StateIO} in their signature, we plan to use \code{Test.QuickCheck.Monadic} help us.  
