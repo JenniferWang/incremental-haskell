@@ -54,7 +54,7 @@
 %----------------------------------------------------------------------------------------
 \section{Introduction}
 
-\paragraph{} this project, we implement a Haskell library for incremental computations. Incremental computing, or self-adjusting computing, is the idea of tracking data and control dependencies in order to selectively re-evaluate only parts of the computations given some changed inputs.
+\paragraph{} In this project, we implement a Haskell library for incremental computations. Incremental computing, or self-adjusting computing, is the idea of tracking data and control dependencies in order to selectively re-evaluate only parts of the computations given some changed inputs.
 \paragraph{} A simple and well-known example of incremental computing is the spreadsheet. 
 In a spreadsheet, a cell contains either some simple data, or an equation describing how the result should be derived from values in other cells. It is critical for a spreadsheet to avoid re-evaluating all the cells when only one cell has changed value. 
 \paragraph{} Jane Street recently released their open-source library written in OCaml named \textit{Incremental}, which concretizes this idea. It is natural for us to inquire whether a similar library exists for Haskell. 
@@ -68,6 +68,14 @@ In a spreadsheet, a cell contains either some simple data, or an equation descri
 \section{Incremental in a nutshell }
 
 \subsection{Incremental DAG}
+\paragraph{} The key idea behind Incremental Computing is a Directed Acyclic Graph(DAG). 
+
+\paragraph{} In an Incremental DAG, a node represents an incremental value in the computation: it can be a simple variable input, or it can depend on some other incremental values. 
+
+\paragraph{} An edge exists from node \verb|n| to node \verb|m| if the value of node \verb|m| depends on the value of node \verb|n|. We say that node \verb|m| is a parent of node \verb|n|.
+
+% Maybe a DAG here?
+
 
 % Use a demo to illustrate the following concepts.
 \subsection{Demo}
