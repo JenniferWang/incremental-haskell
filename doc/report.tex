@@ -81,20 +81,66 @@ In a spreadsheet, a cell contains either some simple data, or an equation descri
 
 \paragraph{} An edge exists from node \verb|n| to node \verb|m| if the value of node \verb|m| depends on the value of node \verb|n|. We say that node \verb|m| is a parent of node \verb|n|.
 
-% Maybe a DAG here?
+% DAG here?
 
 
 % Use a demo to illustrate the following concepts.
 \subsection{Demo}
+\paragraph{} The following example shows how to use out current Incremental library.
+
+\begin{lstlisting}[caption=Example, label={lst:demo}]
+demo :: StateIO ()
+demo = do
+  -- (x + y) + (y * z)
+  x  <- var (1 :: Int)
+  y  <- var (2 :: Int)
+  z  <- var (3 :: Int)
+  t1 <- map2 (+) (watch x) (watch y)
+  t2 <- map2 (*) (watch y) (watch z)
+  w  <- map2 (+) t1 t2
+  o  <- observe w
+
+  stabilize
+  printObs o
+
+  writeVar y 4
+  stabilize
+  printObs o
+\end{lstlisting}
+
+\begin{lstlisting}[caption=Output of demo, label={lst:output}]
+-- New Var created [NodeRef ID = 1]
+-- New Var created [NodeRef ID = 2]
+-- New Var created [NodeRef ID = 3]
+--State.createObserver Observer ID = 7
+--...
+-- State.becameNecessary [NodeRef ID = 3]
+-- State.unlinkDisallowedObs begin
+-- Current root set is [[PackedNode] =>[NodeRef ID = 1],[PackedNode] =>[NodeRef ID = 2],[PackedNode] =>[NodeRef ID = 3],[PackedNode] =>[NodeRef ID = 4],[PackedNode] =>[NodeRef ID = 5],[PackedNode] =>[NodeRef ID = 6]]
+-- State.recompute node [NodeRef ID = 3]
+-- State.recompute node [NodeRef ID = 2]
+-- State.recompute node [NodeRef ID = 5]
+-- State.recompute node [NodeRef ID = 1]
+-- State.recompute node [NodeRef ID = 4]
+-- State.recompute node [NodeRef ID = 6]
+[Observer ID = 7] = 9
+-- State.unlinkDisallowedObs begin
+-- Current root set is [[PackedNode] =>[NodeRef ID = 2]]
+-- State.recompute node [NodeRef ID = 2]
+-- State.recompute node [NodeRef ID = 5]
+-- State.recompute node [NodeRef ID = 4]
+-- State.recompute node [NodeRef ID = 6]
+[Observer ID = 7] = 17
+\end{lstlisting}
+
+In the previous example, a simple computation \code{w = (x + y) + (y * z)} is created. When the value of one input (\code{y}) changes, only the nodes that depend on \code{y} are re-evaluated. Here we provide a brief explanation for different functionality of the library:
 \begin{description}
-  \item [Necessary Node]
-  \item [Variable] user could create variables which they could later change value 
-  \item [Operation] like map/bind/arrayfold/...
-  \item [Observer] use observer to observe some node/make it necessary
-  \item [Stabilize] after building the graph/change the value, use stabilize to ...
-  \item [Garbage Collection] 
+  \item [Necessary Node] As the name indicates, a node is marked necessary when it is needed in a computation.
+  \item [Variable] Users can create variables through \code{var}, and they can later change the value of a variable by calling \code{writeVar}.
+  \item [Operation] Operation is also called Kind in our library, it mainly describes how an incremental is defined/related to other incrementals. Simple examples of operations are \code{map}, \code{map2}(used in demo).
+  \item [Observer] One can use observer to observe some node/make it necessary. For instance, we declare \code{w} as an observer in the example code where its value can be printed out using \code{printObs}.
+  \item [Stabilize] After building the graph/change the value, use \code{stabilize} to recompute the DAG. Only the part of the graph that depends on the actual change would be re-evaluated. This is the most important call in Incremental. Without calling \code{stabilize} before observing, one would see the old values.
 \end{description}
- 
 % \begin{figure}[h]
 % \begin{center}
 % \includegraphics[width=0.65\textwidth]{placeholder} % Include the image placeholder.png
