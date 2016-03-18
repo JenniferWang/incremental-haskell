@@ -81,6 +81,8 @@ In a spreadsheet, a cell contains either some simple data, or an equation descri
 
 \paragraph{} An edge exists from node \verb|n| to node \verb|m| if the value of node \verb|m| depends on the value of node \verb|n|. We say that node \verb|m| is a parent of node \verb|n|.
 
+\paragraph{} It is possible that the user creates a cyclic graph by mistake. The library will then detect and throw exception during stabilization.
+
 % DAG here?
 
 
@@ -135,18 +137,16 @@ demo = do
 
 In the previous example, a simple computation \code{w = (x + y) + (y * z)} is created. When the value of one input (\code{y}) changes, only the nodes that depend on \code{y} are re-evaluated. Here we provide a brief explanation for different functionality of the library:
 \begin{description}
-  \item [Necessary Node] As the name indicates, a node is marked necessary when it is needed in a computation.
   \item [Variable] Users can create variables through \code{var}, and they can later change the value of a variable by calling \code{writeVar}.
-  \item [Operation] Operation is also called Kind in our library, it mainly describes how an incremental is defined/related to other incrementals. Simple examples of operations are \code{map}, \code{map2}(used in demo).
-  \item [Observer] One can use observer to observe some node/make it necessary. For instance, we declare \code{w} as an observer in the example code where its value can be printed out using \code{printObs}.
-  \item [Stabilize] After building the graph/change the value, use \code{stabilize} to recompute the DAG. Only the part of the graph that depends on the actual change would be re-evaluated. This is the most important call in Incremental. Without calling \code{stabilize} before observing, one would see the old values.
+
+  \item [Observer] Users add observer to read the value of the node in interest. For instance, we declare \code{w} as an observer in the example code where its value can be printed out using \code{printObs}. 
+
+  \item [Necessary Node] A node is marked necessary if there is a path from that node to some observed node. An observed node is automatically necessary. 
+
+  \item [Operation] mainly describes how an incremental is defined/related to other incrementals. Simple examples of operations are \code{map}, \code{map2}(used in demo). Like variables, they are also represented by \code{Node}, but of different \code{Kind}.
+
+  \item [Stabilize] After building the graph/change the value, use \code{stabilize} to recompute the DAG. Only the part of the graph that depends on the actual change would be re-evaluated. This is the most important call in Incremental. Reading the value of an observer without stabilization will throw exceptions.
 \end{description}
-% \begin{figure}[h]
-% \begin{center}
-% \includegraphics[width=0.65\textwidth]{placeholder} % Include the image placeholder.png
-% \caption{Figure caption.}
-% \end{center}
-% \end{figure}
 
 %----------------------------------------------------------------------------------------
 %	Implementation 

@@ -1,6 +1,7 @@
 ### CS 240H Project
 ##Incremental in Haskell
 By Jiyue Wang and Kaixi Ruan
+Checkout `doc/report.pdf` for explanation.
 
 ## Examples
 Checkout `app/Main.hs` or run `stack exec incremental-exe`
