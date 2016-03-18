@@ -14,7 +14,6 @@ import Prelude hiding (all)
 
 import Types
 import Utils
-import Var(getValue)
 import qualified Node      as N
 import qualified Observer  as O
 import qualified ArrayFold as AF
