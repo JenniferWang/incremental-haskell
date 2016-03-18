@@ -5,4 +5,7 @@
 *.dyn_hi
 
 *.aux
+*.bbl
+*.out
+*.blg
 *.log

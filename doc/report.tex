@@ -2,12 +2,19 @@
 \usepackage{geometry}
 \geometry{left=2.5cm,right=2.5cm,top=2.5cm,bottom=2.5cm}
 
-\usepackage{graphicx}
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
 \usepackage{natbib} 
+\usepackage{hyperref}
+\bibliographystyle{abbrv}
+
+\usepackage{authblk} % author block
+\usepackage{graphicx}
 \usepackage{amsmath} 
-\usepackage[]{algorithm2e}
-\usepackage{listings}
-\usepackage{authblk}
+
+\usepackage[]{algorithm2e} % algorithm
+\usepackage{listings} % code
+
 \usepackage{color}
 
 \definecolor{dkgreen}{rgb}{0,0.6,0}
@@ -57,8 +64,8 @@
 \paragraph{} In this project, we implement a Haskell library for incremental computations. Incremental computing, or self-adjusting computing, is the idea of tracking data and control dependencies in order to selectively re-evaluate only parts of the computations given some changed inputs.
 \paragraph{} A simple and well-known example of incremental computing is the spreadsheet. 
 In a spreadsheet, a cell contains either some simple data, or an equation describing how the result should be derived from values in other cells. It is critical for a spreadsheet to avoid re-evaluating all the cells when only one cell has changed value. 
-\paragraph{} Jane Street recently released their open-source library written in OCaml named \textit{Incremental}, which concretizes this idea. It is natural for us to inquire whether a similar library exists for Haskell. 
-\paragraph{} It turns out that there are already some existing libraries in Haskell related to incremental computing: \textit{Adaptive} is one directly related to Incremental Computing, but the library was based on some theoretical results int the year 2002 and the theory has evolved since then. There are also many Functional Reactive Programming libraries in Haskell, such as \textit{Reactive-banana}. However, this library is mostly focused on GUI applications rather than computations.
+\paragraph{} Jane Street recently released their open-source library written in OCaml named \textit{Incremental}\cite{Jane}, which concretizes this idea. It is natural for us to inquire whether a similar library exists for Haskell. 
+\paragraph{} It turns out that there are already some existing libraries in Haskell related to incremental computing: \textit{Adaptive}\cite{Adaptive} is one directly related to Incremental Computing, but the library was based on some theoretical results int the year 2002 and the theory has evolved since then. There are also many Functional Reactive Programming libraries in Haskell, such as \textit{Reactive-banana}\cite{reactive}. However, this library is mostly focused on GUI applications rather than computations.
 
 \paragraph{} In  the following sections, we describe how a library like Jane Street's Incremental is implemented using Haskell.
 
@@ -99,10 +106,10 @@ In a spreadsheet, a cell contains either some simple data, or an equation descri
 %	Implementation 
 %----------------------------------------------------------------------------------------
 \section{Implementation}
-Representing a dynamic graph in Haskell is not as straightforward as tree. For efficiency consideration, we decided to give up purity and use \code{IORef}. The good news is that we only need to keep one copy of each node, while on the other hand, most of the manipulation will involve \code{IO} monad.
+\paragraph{} Representing a dynamic graph in Haskell is not as straightforward as tree. For efficiency consideration, we decided to give up purity and use \code{IORef}. The good news is that we only need to keep one copy of each node, while on the other hand, most of the manipulation will involve \code{IO} monad.
 
 \subsection{Node}
-\code{Node a} represents a node in the DAG. Each node needs to maintain a list of fields which might be updated during the stabilization. To avoid copying large record, we organize the fields in a hierarchical structure and use \code{Lens.Simple} to get easy access and mutation.
+\paragraph{} \code{Node a} represents a node in the DAG. Each node needs to maintain a list of fields which might be updated during the stabilization. To avoid copying large record, we organize the fields in a hierarchical structure and use \code{Lens.Simple} to get easy access and mutation.
 
 \begin{lstlisting}[caption=Node]
 data Node a = Node {
@@ -154,7 +161,7 @@ data PackedNode = forall a. Eq a =>
 \end{description}
 
 \subsection{Observer}
-Users can only change the value of a \code{Variable} node, but they can read other kind of node by adding an \code{Observer} to the node in interest. An \code{InUse} oberver makes the observed node necessary. Remember that only necessary nodes will appear in the DAG and update during stabilization. 
+\paragraph{} Users can only change the value of a \code{Variable} node, but they can read other kind of node by adding an \code{Observer} to the node in interest. An \code{InUse} oberver makes the observed node necessary. Remember that only necessary nodes will appear in the DAG and update during stabilization. 
 
 \begin{lstlisting}[caption=Observer]
 newtype Observer a = Obs ObsID
@@ -201,18 +208,17 @@ data StateInfo = StateInfo {
 \subsection{Stabilization}
 
 \subsubsection{\code{Bind} node}
-After the user adds observers or make changes to variables, they need to call \code{stabilize} or \code{stabilizeAsync} to trigger the recomputation. The algorithm is a little complicated because of the \code{Bind} node. 
+\paragraph{} After the user adds observers or make changes to variables, they need to call \code{stabilize} or \code{stabilizeAsync} to trigger the recomputation. The algorithm is a little complicated because of the \code{Bind} node. 
 
-For a static graph, the algorithm is straightforward. First, it starts DFS from the nodes in \code{recHeap} and gets a list of nodes. It then recomputes nodes in the list sequentially and updates all the necessary nodes. 
+\paragraph{} For a static graph, the algorithm is straightforward. First, it starts DFS from the nodes in \code{recHeap} and gets a list of nodes. It then recomputes nodes in the list sequentially and updates all the necessary nodes. 
 
-This algorithm will not work with a \code{Bind} node (see Listing[\ref{lst:bind}]) that generates the graph on the fly. To deal with \code{Bind} node, we do the following modification (see Algorithm[\ref{algo:bind}]). Note that the `else' part actually solve three possible cases and we check the stabilization number before recomputing the node to avoid duplicated work.
+\paragraph{} This algorithm will not work with a \code{Bind} node (see Listing[\ref{lst:bind}]) that generates the graph on the fly. To deal with \code{Bind} node, we do the following modification (see Algorithm[\ref{algo:bind}]). Note that the `else' part actually solve three possible cases and we check the stabilization number before recomputing the node to avoid duplicated work.
 
 \begin{enumerate}
   \item \code{rhs} is \code{Nothing}.
   \item Only \code{lhs} changes.
   \item Both \code{lhs} and \code{rhs} changes.
 \end{enumerate}
-
 
 \begin{lstlisting}[caption=Bind node, label={lst:bind}]
 data Kind a = ...
@@ -240,7 +246,7 @@ data Kind a = ...
 \end{algorithm}
 
 \subsubsection{Asynchronous Stabilization}
-Considering that a large graph may take time to recompute, we provide \code{stabilizeAsync}, \code{waitForStb} and a helper function \code{amStabilizing} to forward the recomputation to another thread. During the stabilization, the user is allowed to create and modify nodes as well as observers. However, all the actions taking place during current stabilization will not take effect until the next stabilization. Check out Listing[\ref{lst:async}] for an example.
+\paragraph{} Considering that a large graph may take time to recompute, we provide \code{stabilizeAsync}, \code{waitForStb} and a helper function \code{amStabilizing} to forward the recomputation to another thread. During the stabilization, the user is allowed to create and modify nodes as well as observers. However, all the actions taking place during current stabilization will not take effect until the next stabilization. Check out Listing[\ref{lst:async}] for an example.
 \begin{lstlisting}[caption=Asynchrnous Stabilization, label={lst:async}]
 exampleAsync :: StateIO ()
 exampleAsync = do
@@ -261,25 +267,27 @@ exampleAsync = do
 expensiveWork :: Int -> StateIO ()
 expensiveWork n = lift (putStr $ (take n $ repeat '.'))
 \end{lstlisting}
-This example also shows that it is user's responsibility to make sure that the function fed into \code{Bind} node be `safe'. It is easy to crash the system with inappropriate \code{IO} actions.
+
+\paragraph{} This example also shows that it is user's responsibility to make sure that the function fed into \code{Bind} node have no other side effect except for introducing new nodes or observers. It is easy to crash the system with inappropriate \code{IO} actions and thus we are trying to restrict misuse on the type level to improve safety.
+
+\subsection{Exception Handling}
+\paragraph{} Runtime exception is inevitable as incremental provides users with the flexibility to construct the DAG on the fly. However, the exception handling fuctions in \code{Control.Exception.Base} only work with \code{IO} monad, not monad transformers. Exception handling in monad transformers could be tricky (see \cite{exception}). Luckily, \code{exceptions} package gives a clean solution in our case.
 
 \section{Future Work}
 \subsection{Testing}
+\paragraph{} Currently, we don't have enough time to write thorough test cases for the library. As most of the function has \code{StateIO} in their signature, we plan to use \code{Test.QuickCheck.Monadic} help us.  
 
-\subsection{Exception Handling}
-
-\subsection{Add Functionality}
+\subsection{Complete the Functionality}
+\paragraph{} So far, our library provides sufficient elementary functions like \code{map}, \code{map2}, \code{bind}, etc. To make the user's life easier, we are adding more functionality like \code{arrayFold}, \code{ifElseThen}, \code{sum}, etc. In addition, it will be nice to log the current state of graph in local file system and recover/resume the computation. Also, we are completing the exception handling mechanism to help reduce runtime exception caused by misuse. 
 
 \subsection{Improve the Algorithm}
+\paragraph{} Our current algorithm keeps a global state to keep track of the graph and uses a DFS-based topological sorting algorithm to do recomputation. A tempting future work is to make the recomputation parallel, which is not possible using current algorithm.
 
 
 %----------------------------------------------------------------------------------------
 %	BIBLIOGRAPHY
 %----------------------------------------------------------------------------------------
-
-\bibliographystyle{apalike}
-
-\bibliography{sample}
+\bibliography{reportbb}
 
 %----------------------------------------------------------------------------------------
 
