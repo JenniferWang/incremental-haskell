@@ -65,9 +65,9 @@
 \paragraph{} A simple and well-known example of incremental computing is the spreadsheet. 
 In a spreadsheet, a cell contains either some simple data, or an equation describing how the result should be derived from values in other cells. It is critical for a spreadsheet to avoid re-evaluating all the cells when only one cell has changed value. 
 \paragraph{} Jane Street recently released their open-source library written in OCaml named \textit{Incremental}\cite{Jane}, which concretizes this idea. It is natural for us to inquire whether a similar library exists for Haskell. 
-\paragraph{} It turns out that there are already some existing libraries in Haskell related to incremental computing: \textit{Adaptive}\cite{Adaptive} is one directly related to Incremental Computing, but the library was based on some theoretical results int the year 2002 and the theory has evolved since then. There are also many Functional Reactive Programming libraries in Haskell, such as \textit{Reactive-banana}\cite{reactive}. However, this library is mostly focused on GUI applications rather than computations.
+\paragraph{} It turns out that there are already some existing libraries in Haskell related to incremental computing: \textit{Adaptive}\cite{Adaptive} is one directly related to Incremental Computing, but the library was based on some theoretical results in the year 2002\cite{acar2006adaptive} and the theory has evolved since then. There is also a Functional Reactive Programming library in Haskell called \textit{Reactive-banana}\cite{reactive}. However, this library is mostly focused on GUI applications rather than computations. Thus, we decided to write a library which provides similar functionality as Incremental by Jane Street.
 
-\paragraph{} In  the following sections, we describe how a library like Jane Street's Incremental is implemented using Haskell.
+\paragraph{} In the following sections, we describe how a library like Jane Street's Incremental is implemented using Haskell.
 
 %----------------------------------------------------------------------------------------
 % Different concepts in the library, how to use it
@@ -106,12 +106,12 @@ In a spreadsheet, a cell contains either some simple data, or an equation descri
 %	Implementation 
 %----------------------------------------------------------------------------------------
 \section{Implementation}
-\paragraph{} Representing a dynamic graph in Haskell is not as straightforward as tree. For efficiency consideration, we decided to give up purity and use \code{IORef}. The good news is that we only need to keep one copy of each node, while on the other hand, most of the manipulation will involve \code{IO} monad.
+\paragraph{} Representing a dynamic graph in Haskell is not as straightforward as a tree. For efficiency consideration, we decided to give up purity and use \code{IORef}. The good news is that we only need to keep one copy of each node, while on the other hand, most of the manipulation will live in \code{IO} monad.
 
 \subsection{Node}
-\paragraph{} \code{Node a} represents a node in the DAG. Each node needs to maintain a list of fields which might be updated during the stabilization. To avoid copying large record, we organize the fields in a hierarchical structure and use \code{Lens.Simple} to get easy access and mutation.
+\paragraph{} \code{Node} represents a node in the DAG. Each node needs to maintain a list of fields which might be updated during the stabilization. To avoid copying large record, we organize the fields in a hierarchical structure and use \code{Lens.Simple} to get access to a specific field efficiently. Listing[\ref{lst:node}] gives code snippets related to \code{Node}.
 
-\begin{lstlisting}[caption=Node]
+\begin{lstlisting}[caption=Node, label={lst:node}]
 data Node a = Node {
     _kind      :: Kind a
   , _value     :: ValueInfo a
@@ -152,9 +152,9 @@ data PackedNode = forall a. Eq a =>
 \end{lstlisting}
 
 \begin{description}
-  \item[kind] could be \code{Variable}, \code{Map}, \code{Bind}, etc., which represents the type of the node. It also keep references to all possible children when it is first created. However, the child node does not necessarily has an edge to its parents. The child-to-parent edge is added (from parent) only when the parent becomes necessary and it is removed once the parent is unnecessary.
-  \item[value] not only contains the current node value but also contains some extra information to help decide whether the value is stale.
-  \item[edges] stores the topological information of the graph. It contains references to parent nodes as well as observers watching the current node.
+  \item[kind] could be \code{Variable}, \code{Map}, \code{Bind}, etc., which represents the type of the node. It also stores references(parent-to-child edge) to all possible children when it is first created. However, the child node does not necessarily has an edge to its parents. The child-to-parent edge is added (from parent) only when the parent becomes necessary and it is removed once the parent is unnecessary.
+  \item[value] not only contains the current node value but also contains extra information to help decide whether the value is stale.
+  \item[edges] stores the topological information of the graph. It contains references to parent nodes(child-to-parent edge) as well as observers watching the current node.
   \item[Unique] gives a unique identifier for each \code{NodeRef} that helps to compare nodes of different types without dereferencing the \code{IORef (Node a)}.
   \item[Scope] indicates the scope in wich the node is created. A user could introduce a new node in the `global' scope (\code{Top}), or on the RHS of a \code{Bind} node. This is useful when the recomputation involves a \code{Bind} node. As both \textbf{id} and \textbf{scope} is immutable during the lifetime of a node, we could keep them outside \code{Node a}, thus saving one layer of indirectness.
   \item[PackedNode] is a convenience wrapper over nodes of different types. This allows us to store heterogeneous parent/child nodes.
@@ -185,7 +185,7 @@ data PackedObs = forall a. Eq a =>
 \end{lstlisting}
 
 \subsection{State}
-We need something like \code{State} monad to keep track of the DAG and observers. To incorporate  \code{IO} monad as well, we use the monad transformer \code{StateT} to stack them into a new monad \code{StateIO}.
+We need an environment like \code{State} monad to keep track of the DAG and observers. To incorporate \code{IO} monad as well, we use the monad transformer \code{StateT} to stack them into a new monad \code{StateIO}.
 
 \begin{lstlisting}[caption=State]
 type StateIO a = StateT StateInfo IO a
@@ -199,27 +199,16 @@ data StateInfo = StateInfo {
 \end{lstlisting}
 
 \begin{description}
-  \item[info] keeps track of status related information, including whether the program is during a stabilization, stabilization number, current scope and debug information, etc.
-  \item[recHeap] is a somewhat misnamed field. It is used be a minimum heap which stores the necessary nodes that needs to recompute during next stabilization. Later, we use DFS-based topological sorting to update nodes and this field becomes a set of root nodes for DFS.
+  \item[info] keeps track of status related information, including whether the program is during a stabilization, the stabilization number, current scope and debug information, etc.
+  \item[recHeap] is a somewhat misnamed field. It is used be a minimum heap which stores the nodes that needs to be recomputed during next stabilization. Later, we use DFS-based topological sorting to update nodes and this field becomes a set of root nodes for DFS.
   \item[observer] is a map of observer ID to instances. Currently, we use a standard map which based on size balanced binary trees. It could be easily replaced by other containers like \code{IntMap} to improve performance.
   \item[varSetDuringStb] is a list of variables set during stabilization, used in asynchronous stabilization.
 \end{description}
 
 \subsection{Stabilization}
-
-\subsubsection{\code{Bind} node}
 \paragraph{} After the user adds observers or make changes to variables, they need to call \code{stabilize} or \code{stabilizeAsync} to trigger the recomputation. The algorithm is a little complicated because of the \code{Bind} node. 
 
-\paragraph{} For a static graph, the algorithm is straightforward. First, it starts DFS from the nodes in \code{recHeap} and gets a list of nodes. It then recomputes nodes in the list sequentially and updates all the necessary nodes. 
-
-\paragraph{} This algorithm will not work with a \code{Bind} node (see Listing[\ref{lst:bind}]) that generates the graph on the fly. To deal with \code{Bind} node, we do the following modification (see Algorithm[\ref{algo:bind}]). Note that the `else' part actually solve three possible cases and we check the stabilization number before recomputing the node to avoid duplicated work.
-
-\begin{enumerate}
-  \item \code{rhs} is \code{Nothing}.
-  \item Only \code{lhs} changes.
-  \item Both \code{lhs} and \code{rhs} changes.
-\end{enumerate}
-
+\subsubsection{\code{Bind} node}
 \begin{lstlisting}[caption=Bind node, label={lst:bind}]
 data Kind a = ...
   | forall b. Eq b => Bind {
@@ -230,6 +219,16 @@ data Kind a = ...
     }
   ...
 \end{lstlisting}
+
+\paragraph{} For a static graph, the algorithm is straightforward. First, it starts DFS from the nodes in \code{recHeap} and gets a list of nodes. It then recomputes nodes in the list sequentially and updates all the necessary nodes. 
+
+\paragraph{} This algorithm will not work with a \code{Bind} node (see Listing[\ref{lst:bind}]) that generates the graph on the fly. To deal with \code{Bind} node, we do the following modification (see Algorithm[\ref{algo:bind}]). Note that the `else' part actually solve three possible cases and we check the stabilization number before recomputing the node to avoid duplicated work.
+
+\begin{enumerate}
+  \item \code{rhs} is \code{Nothing}.
+  \item Only \code{lhs} changes.
+  \item Both \code{lhs} and \code{rhs} changes.
+\end{enumerate}
 
 \begin{algorithm}
   \caption{Recompute \code{Bind} node}
@@ -256,22 +255,23 @@ exampleAsync = do
 
   ob <- observe b1
   stabilizeAsync
+  
   ob' <- observe b1
 
-  waitForStb
-  printObs ob
-  -- printObs ob' -- should got exception
+  waitForStb   -- ob' is still not valid
+  printObs ob  -- ob is valid
+  
   stabilize
-  printObs ob'
+  printObs ob' -- ob' is valid now
 
 expensiveWork :: Int -> StateIO ()
 expensiveWork n = lift (putStr $ (take n $ repeat '.'))
 \end{lstlisting}
 
-\paragraph{} This example also shows that it is user's responsibility to make sure that the function fed into \code{Bind} node have no other side effect except for introducing new nodes or observers. It is easy to crash the system with inappropriate \code{IO} actions and thus we are trying to restrict misuse on the type level to improve safety.
+\paragraph{} This is also a counterexample showing that it is user's responsibility to make sure the function fed into \code{Bind} node have no other side effect except for introducing new nodes or observers. It is easy to crash the system by lifting inappropriate \code{IO} actions and thus we are trying to restrict misuse on the type level to improve safety.
 
 \subsection{Exception Handling}
-\paragraph{} Runtime exception is inevitable as incremental provides users with the flexibility to construct the DAG on the fly. However, the exception handling fuctions in \code{Control.Exception.Base} only work with \code{IO} monad, not monad transformers. Exception handling in monad transformers could be tricky (see \cite{exception}). Luckily, \code{exceptions} package gives a clean solution in our case.
+\paragraph{} Runtime exception are inevitables as the graph is changing dynamically. However, the exception handling fuctions in \code{Control.Exception.Base} only work with \code{IO} monad, not monad transformers. Exception handling in monad transformers could be tricky (see \cite{exception}). Fortunately, the \code{exceptions} package gives a clean solution in our case.
 
 \section{Future Work}
 \subsection{Testing}
@@ -281,7 +281,7 @@ expensiveWork n = lift (putStr $ (take n $ repeat '.'))
 \paragraph{} So far, our library provides sufficient elementary functions like \code{map}, \code{map2}, \code{bind}, etc. To make the user's life easier, we are adding more functionality like \code{arrayFold}, \code{ifElseThen}, \code{sum}, etc. In addition, it will be nice to log the current state of graph in local file system and recover/resume the computation. Also, we are completing the exception handling mechanism to help reduce runtime exception caused by misuse. 
 
 \subsection{Improve the Algorithm}
-\paragraph{} Our current algorithm keeps a global state to keep track of the graph and uses a DFS-based topological sorting algorithm to do recomputation. A tempting future work is to make the recomputation parallel, which is not possible using current algorithm.
+\paragraph{} Our current algorithm maintains a global state to keep track of the graph and uses a DFS-based topological sorting algorithm to do recomputation. A tempting future work is to make the recomputation parallel, which is not possible using current algorithm.
 
 
 %----------------------------------------------------------------------------------------
