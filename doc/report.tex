@@ -51,6 +51,14 @@
 %----------------------------------------------------------------------------------------
 \section{Introduction}
 
+\paragraph{} this project, we implement a Haskell library for incremental computations. Incremental computing, or self-adjusting computing, is the idea of tracking data and control dependencies in order to selectively re-evaluate only parts of the computations given some changed inputs.
+\paragraph{} A simple and well-known example of incremental computing is the spreadsheet. 
+In a spreadsheet, a cell contains either some simple data, or an equation describing how the result should be derived from values in other cells. It is critical for a spreadsheet to avoid re-evaluating all the cells when only one cell has changed value. 
+\paragraph{} Jane Street recently released their open-source library written in OCaml named \textit{Incremental}, which concretizes this idea. It is natural for us to inquire whether a similar library exists for Haskell. 
+\paragraph{} It turns out that there are already some existing libraries in Haskell related to incremental computing: \textit{Adaptive} is one directly related to Incremental Computing, but the library was based on some theoretical results int the year 2002 and the theory has evolved since then. There are also many Functional Reactive Programming libraries in Haskell, such as \textit{Reactive-banana}. However, this library is mostly focused on GUI applications rather than computations.
+
+\paragraph{} In  the following sections, we describe how a library like Jane Street's Incremental is implemented using Haskell.
+
 %----------------------------------------------------------------------------------------
 % Different concepts in the library, how to use it
 %----------------------------------------------------------------------------------------
