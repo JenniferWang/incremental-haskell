@@ -140,14 +140,6 @@ removeObs ref i = modifyNodeRef ref (\n -> n & edges.obsOnNode %~ (Set.delete i)
 getParentsP :: PackedNode -> StateIO [PackedNode]
 getParentsP (PackedNode noderef) = readNodeRef noderef >>= (return . getParents)
 
-getTopParents :: (Eq a) => Node a -> [PackedNode]
-getTopParents n = iteriParents n go
-  where
-  go _ p@(PackedNode par) = case (getScope par) of Top     -> p
-                                                   Bound b -> (pack b)
-
-getTopParentsP :: PackedNode -> StateIO [PackedNode]
-getTopParentsP (PackedNode noderef) = readNodeRef noderef >>= (return . getTopParents)
 
 isStaleP :: (Eq a) => NodeRef a -> StateIO Bool
 isStaleP ref = do

@@ -195,7 +195,7 @@ instance Show Unique where
   show u = show (hashUnique u)
 
 data InterObserver a = InterObs {
-    _obsID            :: !Unique
+    _obsID            :: !ObsID
   , _state            :: !ObsState
   , _observing        :: !(NodeRef a)
   }
@@ -212,7 +212,7 @@ instance Ord (InterObserver a) where
 
 data PackedObs = forall a. Eq a => PackObs (InterObserver a)
 
-getObsID :: PackedObs -> Unique
+getObsID :: PackedObs -> ObsID
 getObsID (PackObs o) = _obsID o
 
 instance Show PackedObs where

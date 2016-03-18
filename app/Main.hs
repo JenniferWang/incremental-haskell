@@ -149,4 +149,4 @@ expensiveWork n = lift (putStr $ (take n $ repeat '.'))
 
 main :: IO ()
 main = mapM_ Inc.run
-             [example1, example2]
+             [example3, example4, example5]

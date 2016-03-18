@@ -5,6 +5,7 @@
 \usepackage{graphicx}
 \usepackage{natbib} 
 \usepackage{amsmath} 
+\usepackage[]{algorithm2e}
 \usepackage{listings}
 \usepackage{authblk}
 \usepackage{color}
@@ -32,6 +33,8 @@
 \setlength\parindent{0pt} % Removes all indentation from paragraphs
 
 \renewcommand{\labelenumi}{\alph{enumi}.} % Make numbering in the enumerate environment by letter rather than number (e.g. section 6)
+\newcommand{\code}{\texttt} % Inline code
+
 
 % \title{Determination of the Atomic \\ Weight of Magnesium \\ CHEM 101} % Title
 \title{Incremental Computing in Haskell\\CS240H Project Report}
@@ -69,6 +72,7 @@ In a spreadsheet, a cell contains either some simple data, or an equation descri
 % Use a demo to illustrate the following concepts.
 \subsection{Demo}
 \begin{description}
+  \item [Necessary Node]
   \item [Variable] user could create variables which they could later change value 
   \item [Operation] like map/bind/arrayfold/...
   \item [Observer] use observer to observe some node/make it necessary
@@ -83,29 +87,183 @@ In a spreadsheet, a cell contains either some simple data, or an equation descri
 % \end{center}
 % \end{figure}
 
-
 %----------------------------------------------------------------------------------------
 %	Implementation 
 %----------------------------------------------------------------------------------------
 \section{Implementation}
+Representing a dynamic graph in Haskell is not as straightforward as tree. For efficiency consideration, we decided to give up purity and use \code{IORef}. The good news is that we only need to keep one copy of each node, while on the other hand, most of the manipulation will involve \code{IO} monad.
+
 \subsection{Node}
-\begin{lstlisting}
-  -- comment
-  data Node a = Node {
+\code{Node a} represents a node in the DAG. Each node needs to maintain a list of fields which might be updated during the stabilization. To avoid copying large record, we organize the fields in a hierarchical structure and use \code{Lens.Simple} to get easy access and mutation.
+
+\begin{lstlisting}[caption=Node]
+data Node a = Node {
     _kind      :: Kind a
   , _value     :: ValueInfo a
   , _edges     :: Edges
   }  
+
+data Kind a =
+    forall b. Eq b => ArrayFold ...
+  | forall b. Eq b => Bind {
+        func  :: b -> StateIO (NodeRef a)
+      , lhs   :: NodeRef b
+      , rhs   :: Maybe (NodeRef a)
+      , nodesCreatedInScope :: [PackedNode]
+      }
+  | Const a
+  | Variable {
+        mvalue  :: a
+      , setAt   :: StabilizationNum
+      , valueSetDuringStb :: !(Maybe a)
+      }
+  | forall b. Eq b => Map (b -> a) (NodeRef b)
+  ...
+  
+data Edges = Edges {
+    _parents   :: Set PackedNode
+  , _obsOnNode :: Set ObsID
+  }
+
+data Scope = Top
+           | forall a. Eq a => Bound (NodeRef a)
+
+data NodeRef a = Ref (IORef (Node a))
+                     !Unique  -- node id
+                     !Scope   -- scope created in
+
+data PackedNode = forall a. Eq a => 
+                  PackedNode (NodeRef a)
 \end{lstlisting}
 
-\subsection{Kind}
-
-\subsection{State}
-
-\subsection{Stabilization}
-% TODO: add demo of async stabilization
+\begin{description}
+  \item[kind] could be \code{Variable}, \code{Map}, \code{Bind}, etc., which represents the type of the node. It also keep references to all possible children when it is first created. However, the child node does not necessarily has an edge to its parents. The child-to-parent edge is added (from parent) only when the parent becomes necessary and it is removed once the parent is unnecessary.
+  \item[value] not only contains the current node value but also contains some extra information to help decide whether the value is stale.
+  \item[edges] stores the topological information of the graph. It contains references to parent nodes as well as observers watching the current node.
+  \item[Unique] gives a unique identifier for each \code{NodeRef} that helps to compare nodes of different types without dereferencing the \code{IORef (Node a)}.
+  \item[Scope] indicates the scope in wich the node is created. A user could introduce a new node in the `global' scope (\code{Top}), or on the RHS of a \code{Bind} node. This is useful when the recomputation involves a \code{Bind} node. As both \textbf{id} and \textbf{scope} is immutable during the lifetime of a node, we could keep them outside \code{Node a}, thus saving one layer of indirectness.
+  \item[PackedNode] is a convenience wrapper over nodes of different types. This allows us to store heterogeneous parent/child nodes.
+\end{description}
 
 \subsection{Observer}
+Users can only change the value of a \code{Variable} node, but they can read other kind of node by adding an \code{Observer} to the node in interest. An \code{InUse} oberver makes the observed node necessary. Remember that only necessary nodes will appear in the DAG and update during stabilization. 
+
+\begin{lstlisting}[caption=Observer]
+newtype Observer a = Obs ObsID
+
+type ObsID = Unique
+
+data InterObserver a = InterObs {
+    _obsID  :: !ObsID
+  , _state  :: !ObsState
+  , _observing :: !(NodeRef a)
+  }
+
+data ObsState = Created 
+              | InUse 
+              | Disallowed 
+              | Unlinked
+
+data PackedObs = forall a. Eq a => 
+                 PackObs (InterObserver a)
+
+\end{lstlisting}
+
+\subsection{State}
+We need something like \code{State} monad to keep track of the DAG and observers. To incorporate  \code{IO} monad as well, we use the monad transformer \code{StateT} to stack them into a new monad \code{StateIO}.
+
+\begin{lstlisting}[caption=State]
+type StateIO a = StateT StateInfo IO a
+
+data StateInfo = StateInfo {
+    _info            :: StatusInfo
+  , _recHeap         :: Set PackedNode
+  , _observer        :: ObserverInfo
+  , _varSetDuringStb :: [PackedVar]
+  }
+\end{lstlisting}
+
+\begin{description}
+  \item[info] keeps track of status related information, including whether the program is during a stabilization, stabilization number, current scope and debug information, etc.
+  \item[recHeap] is a somewhat misnamed field. It is used be a minimum heap which stores the necessary nodes that needs to recompute during next stabilization. Later, we use DFS-based topological sorting to update nodes and this field becomes a set of root nodes for DFS.
+  \item[observer] is a map of observer ID to instances. Currently, we use a standard map which based on size balanced binary trees. It could be easily replaced by other containers like \code{IntMap} to improve performance.
+  \item[varSetDuringStb] is a list of variables set during stabilization, used in asynchronous stabilization.
+\end{description}
+
+\subsection{Stabilization}
+
+\subsubsection{\code{Bind} node}
+After the user adds observers or make changes to variables, they need to call \code{stabilize} or \code{stabilizeAsync} to trigger the recomputation. The algorithm is a little complicated because of the \code{Bind} node. 
+
+For a static graph, the algorithm is straightforward. First, it starts DFS from the nodes in \code{recHeap} and gets a list of nodes. It then recomputes nodes in the list sequentially and updates all the necessary nodes. 
+
+This algorithm will not work with a \code{Bind} node (see Listing[\ref{lst:bind}]) that generates the graph on the fly. To deal with \code{Bind} node, we do the following modification (see Algorithm[\ref{algo:bind}]). Note that the `else' part actually solve three possible cases and we check the stabilization number before recomputing the node to avoid duplicated work.
+
+\begin{enumerate}
+  \item \code{rhs} is \code{Nothing}.
+  \item Only \code{lhs} changes.
+  \item Both \code{lhs} and \code{rhs} changes.
+\end{enumerate}
+
+
+\begin{lstlisting}[caption=Bind node, label={lst:bind}]
+data Kind a = ...
+  | forall b. Eq b => Bind {
+      func  :: b -> StateIO (NodeRef a)
+    , lhs   :: NodeRef b
+    , rhs   :: Maybe (NodeRef a)
+    , nodesCreatedInScope :: [PackedNode]
+    }
+  ...
+\end{lstlisting}
+
+\begin{algorithm}
+  \caption{Recompute \code{Bind} node}
+  \label{algo:bind}
+  \eIf{stbNum(LHS) $<$ stbNum(Current)} {
+    (LHS does not change)\;
+    copy the value of RHS node\;
+   } {
+     (Regenerate RHS)\;
+     run \code{func}\;
+     recompute RHS nodes recursively\;
+     update \code{rhs} if necessary\;
+   }
+\end{algorithm}
+
+\subsubsection{Asynchronous Stabilization}
+Considering that a large graph may take time to recompute, we provide \code{stabilizeAsync}, \code{waitForStb} and a helper function \code{amStabilizing} to forward the recomputation to another thread. During the stabilization, the user is allowed to create and modify nodes as well as observers. However, all the actions taking place during current stabilization will not take effect until the next stabilization. Check out Listing[\ref{lst:async}] for an example.
+\begin{lstlisting}[caption=Asynchrnous Stabilization, label={lst:async}]
+exampleAsync :: StateIO ()
+exampleAsync = do
+  v1 <- var (5 :: Int)
+  b1 <- (const True) >>=| 
+        (\_ -> expensiveWork 1000 >> return (watch v1))
+
+  ob <- observe b1
+  stabilizeAsync
+  ob' <- observe b1
+
+  waitForStb
+  printObs ob
+  -- printObs ob' -- should got exception
+  stabilize
+  printObs ob'
+
+expensiveWork :: Int -> StateIO ()
+expensiveWork n = lift (putStr $ (take n $ repeat '.'))
+\end{lstlisting}
+This example also shows that it is user's responsibility to make sure that the function fed into \code{Bind} node be `safe'. It is easy to crash the system with inappropriate \code{IO} actions.
+
+\section{Future Work}
+\subsection{Testing}
+
+\subsection{Exception Handling}
+
+\subsection{Add Functionality}
+
+\subsection{Improve the Algorithm}
+
 
 %----------------------------------------------------------------------------------------
 %	BIBLIOGRAPHY

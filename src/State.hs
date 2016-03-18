@@ -164,23 +164,29 @@ recompute (PackedNode nf) = do
 
           Bind f l r nodes_r -> do
             putStrLnT $ "State.recompute Bind node, nodes created on rhs " ++ show nodes_r
-            modifyNodeRef nf (\n -> n & kind %~ (\k -> k{ nodesCreatedInScope = [] }))
-            lhs_node <- readNodeRef l
-            new_rhs  <- runWithScope (Bound nf) (\() -> f (N.valueExn lhs_node))
-            modifyNodeRef nf (\n -> n & kind %~ (\k -> k{ rhs = Just new_rhs }))
+            lhs_node <- (readNodeRef l)
+            if (lhs_node^.value.recomputedAt) < stbnum
+               -- if the lhs is not updated in the current stabilization => case [b.1]
+               then copyChild nf (fromJust r)
+               else do
+                 -- need to recompute rhs any way => case [a, b.2,3]
+                 modifyNodeRef nf (\n -> n & kind %~ (\k -> k{ nodesCreatedInScope = [] }))
+                 new_rhs  <- runWithScope (Bound nf) (\() -> f (N.valueExn lhs_node))
 
-            update nf r new_rhs
-            addParent new_rhs nf
-            copyChild nf new_rhs
-              where
-              update :: Eq a => NodeRef a -> Maybe (NodeRef a) -> NodeRef a -> StateIO ()
-              update _ Nothing new_child = recomputeFromParent (pack new_child)
-              update parent (Just old_child) new_child = do
-                if old_child == new_child
+                 update nf r new_rhs
+                 addParent new_rhs nf
+                 copyChild nf new_rhs
+                 modifyNodeRef nf (\n -> n & kind %~ (\k -> k{ rhs = Just new_rhs}))
+
+             where
+               update :: Eq a => NodeRef a -> Maybe (NodeRef a) -> NodeRef a -> StateIO ()
+               update _ Nothing new_child = recomputeFromParent (pack new_child)
+               update parent (Just old_child) new_child = do
+                 if old_child == new_child
                    then return ()
                    else do
                      when verbose (putStrLnT $ "--* State.remove parent from child " ++ show old_child
-                                  ++ " to " ++ show parent)
+                                   ++ " to " ++ show parent)
                      lift $ N.removeParent old_child parent
                      invalidateNodesCreatedOnRHS nodes_r
                      recomputeFromParent (pack new_child)
@@ -207,8 +213,7 @@ recomputeFromChildren roots = do
     topo (x:xs) stack seen
       | x `Set.member` seen = topo xs stack seen
       | otherwise = do
-          -- Only fetch parents in the top scope or the bind node
-          xs'             <- N.getTopParentsP x
+          xs'             <- N.getParentsP x
           (stack', seen') <- topo xs' stack (Set.insert x seen)
           topo xs (x:stack') seen'
 
@@ -261,6 +266,7 @@ invalidateNodesCreatedOnRHS = foldM_ (\() (PackedNode nf) -> propagateInvalidity
 -- Run a user-give fuction in specific scope.
 runWithScope :: Eq a => Scope -> (() -> StateIO (NodeRef a)) -> StateIO (NodeRef a)
 runWithScope scope f = do
+  when verbose (putStrLnT "--* State.runWithScope")
   saved <- getCurrScope
   modify (\s -> s & info.currScope .~ scope)
   f () `finally` modify (\s -> s & info.currScope .~ saved)
@@ -445,7 +451,7 @@ waitForStb = do
   curr_state <- get
   case curr_state^.info.status of
     Stabilizing handle -> do new_state <- lift $ wait handle
-                             modify (\s -> mergeTwoStates curr_state new_state)
+                             modify (\s -> mergeTwoStates s new_state)
     _                  -> return ()
 
 mergeTwoStates :: StateInfo -> StateInfo -> StateInfo
@@ -457,7 +463,7 @@ stabilize :: StateIO ()
 stabilize = do
   old_state <- get
   new_state <- lift $ stabilizeWithState old_state
-  modify (\s -> mergeTwoStates old_state new_state)
+  modify (\s -> mergeTwoStates s new_state)
 
 ---------------------------------- Freeze -------------------------------------
 freeze :: Eq a => NodeRef a -> (a -> Bool) -> StateIO (NodeRef a)
